@@ -283,28 +283,6 @@ npm run dev
 
 ---
 
-## 💼 Why This Project Stands Out
-
-This is not just a chatbot.
-
-It demonstrates:
-
-* Multi-agent AI system design
-* RAG-based contextual intelligence
-* Real-time event-driven architecture
-* Explainable AI for healthcare
-* Production-aware full-stack engineering
-
----
-
-## 🎤 Interview Notes
-
-* Designed **LLM-driven orchestration** instead of static pipelines
-* Implemented **structured validation for all AI outputs**
-* Built **observability system for agent execution tracking**
-* Ensured **graceful fallback for reliability**
-* Focused on **explainability for healthcare trust**
-
 ---
 
 ## 👨💻 Author
