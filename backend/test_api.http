@@ -1,0 +1,147 @@
+### 1. Register a new user
+POST http://localhost:8000/api/v1/auth/register
+Content-Type: application/json
+
+{
+  "name": "John Doe",
+  "email": "john@example.com",
+  "password": "securepassword123"
+}
+
+### 2. Login to get Access Token
+POST http://localhost:8000/api/v1/auth/login
+Content-Type: application/x-www-form-urlencoded
+
+username=john@example.com&password=securepassword123
+
+> {% client.global.set("auth_token", response.body.access_token); %}
+
+### 3. Upload a Report
+POST http://localhost:8000/api/v1/reports/upload
+Authorization: Bearer {{auth_token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="file_type"
+
+pdf
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="medical_report.pdf"
+Content-Type: application/pdf
+
+< ./medical_report.pdf
+--WebAppBoundary--
+
+> {% client.global.set("report_id", response.body.id); %}
+
+### 4. Ask AI to Analyze Report (ALSO extracts and saves metrics to DB automatically)
+POST http://localhost:8000/api/v1/ai/analyze-report
+Authorization: Bearer {{auth_token}}
+Content-Type: application/json
+
+{
+  "report_id": "{{report_id}}"
+}
+
+### 5. Ask a RAG Question
+POST http://localhost:8000/api/v1/ai/query-report
+Authorization: Bearer {{auth_token}}
+Content-Type: application/json
+
+{
+  "report_id": "{{report_id}}",
+  "question": "What specifically did the doctor mention?"
+}
+
+
+# ==========================================
+# PHASE 3: ANALYTICS & INSIGHTS 
+# ==========================================
+
+### 6. Get Frontend Time-Series Metrics Trends
+# Use this to power your React/Vue Line Charts!
+GET http://localhost:8000/api/v1/metrics/trends
+Authorization: Bearer {{auth_token}}
+
+
+### 7. Get Raw Extracted Database Metrics for a Report
+GET http://localhost:8000/api/v1/metrics/{{report_id}}
+Authorization: Bearer {{auth_token}}
+
+
+### 8. Run Comparative Engine
+# Compares the provided report against the user's historical past averages automatically
+GET http://localhost:8000/api/v1/reports/compare/{{report_id}}
+Authorization: Bearer {{auth_token}}
+
+
+### 9. Generate AI Historical Health Insights
+# Holistic timeline text analysis!
+GET http://localhost:8000/api/v1/ai/health-insights
+Authorization: Bearer {{auth_token}}
+
+
+# ==========================================
+# PHASE 4: ACTION AGENTS
+# ==========================================
+
+### 10. Add Emergency Contact
+POST http://localhost:8000/api/v1/emergency/add-contact
+Authorization: Bearer {{auth_token}}
+Content-Type: application/json
+
+{
+  "name": "Jane Doe",
+  "phone_number": "+1234567890",
+  "relation": "Spouse"
+}
+
+### 11. Trigger Panic Button / Manual Alert
+# Simulates the LLM finding a HIGH risk report and firing the SMS/Email Engine!
+POST http://localhost:8000/api/v1/emergency/trigger-alert
+Authorization: Bearer {{auth_token}}
+
+### 12. Schedule a Medication Reminder
+POST http://localhost:8000/api/v1/medications/add
+Authorization: Bearer {{auth_token}}
+Content-Type: application/json
+
+{
+  "medicine_name": "Lisinopril",
+  "dosage": "10mg",
+  "time": "08:00",
+  "start_date": "2026-03-27T00:00:00Z"
+}
+
+### 13. List Active Medications
+GET http://localhost:8000/api/v1/medications/list
+Authorization: Bearer {{auth_token}}
+
+### 14. Delete a Scheduled Medication
+# Replace {med_id} with ID from GET /medications/list
+DELETE http://localhost:8000/api/v1/medications/REPLACE_WITH_UUID
+Authorization: Bearer {{auth_token}}
+
+# ==========================================
+# PHASE 5: MULTI-AGENT ORCHESTRATION 
+# ==========================================
+
+### 15. Orchestrator Engine: Autonomous Process Report
+# Executes the Analyzer -> Diagnosis -> Insights pipeline instantly!
+POST http://localhost:8000/api/v1/ai/process-report
+Authorization: Bearer {{auth_token}}
+Content-Type: application/json
+
+{
+  "report_id": "{{report_id}}"
+}
+
+### 16. Orchestrator Engine: User RAG Query
+POST http://localhost:8000/api/v1/ai/agent-query
+Authorization: Bearer {{auth_token}}
+Content-Type: application/json
+
+{
+  "report_id": "{{report_id}}",
+  "question": "Did the secondary diagnostic agent flag any lipid issues?"
+}

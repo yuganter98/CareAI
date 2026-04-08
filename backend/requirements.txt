@@ -1,0 +1,22 @@
+fastapi[standard]
+uvicorn[standard]
+sqlalchemy
+asyncpg
+pydantic
+pydantic-settings
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+alembic
+python-dotenv
+aiofiles
+
+# Phase 2: AI & RAG dependencies
+pymupdf
+pdfplumber
+pytesseract
+Pillow
+openai
+sentence-transformers
+faiss-cpu
+apscheduler

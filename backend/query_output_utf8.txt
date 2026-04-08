@@ -1,0 +1,5 @@
+﻿Report ID: 4698bde9-bb08-4f25-9407-e2d38e215c82 | Name: hemoglobin | Value: 15.8 | Date: 2026-04-01 12:18:40.589218
+Report ID: 59ceb1ec-f772-402b-b318-5707760130e4 | Name: hemoglobin | Value: 16.2 | Date: 2026-04-01 12:21:39.414618
+Report ID: 52f4e6c6-7d4f-41b8-9b1b-e6570c8303c2 | Name: hemoglobin | Value: 15.2 | Date: 2026-04-01 12:23:22.227012
+Report ID: ecc414dc-4095-4335-98b3-c2b7df6ad759 | Name: hemoglobin | Value: 14.7 | Date: 2026-04-01 12:24:55.543315
+Report ID: 37ce2727-6aba-495a-81dc-23ce3758c3f6 | Name: hemoglobin | Value: 15.1 | Date: 2026-04-01 12:27:19.711053

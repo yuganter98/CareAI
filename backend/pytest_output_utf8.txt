@@ -1,0 +1,20 @@
+﻿.venv\Scripts\python.exe : 
+D:\New Idea\CareAI\backend\.v
+env\Scripts\python.exe: No 
+module named pytest
+At line:1 char:156
++ ... thon.exe) { 
+.venv\Scripts\python.exe -m 
+pytest tests/ > 
+pytest_output ...
++                 ~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~
+    + CategoryInfo           
+   : NotSpecified: (D:\New   
+  Idea\Car...le named pyte   
+ st:String) [], RemoteExc    
+eption
+    + FullyQualifiedErrorId  
+   : NativeCommandError
+ 
