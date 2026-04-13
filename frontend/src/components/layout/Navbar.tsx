@@ -26,8 +26,13 @@ export function Navbar({ transparent = false }: { transparent?: boolean }) {
       .catch(() => setInitials("?"));
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem("careai_token");
+  const handleLogout = async () => {
+    try {
+      await CareAI.logout();
+    } catch (e) {
+      console.error("Logout failed", e);
+    }
+    localStorage.removeItem("careai_token"); // backup clear
     router.push("/login");
   };
 

@@ -30,6 +30,10 @@ export async function fetchWithAuth(endpoint: string, options: RequestInit = {})
     throw new Error(error.detail || `API Request failed: ${response.statusText}`);
   }
 
+  if (response.status === 204) {
+    return null;
+  }
+
   return response.json();
 }
 

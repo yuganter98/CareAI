@@ -23,8 +23,7 @@ export function UploadForm() {
       setTimeout(() => router.push(`/reports/${reportMeta.id}`), 1200);
     } catch(e: any) {
       console.error(e);
-      alert("AI Pipeline failure: " + e.message);
-      setIsUploading(false);
+      alert("AI Pipeline failure: " + e.message); 
     }
   };
 
