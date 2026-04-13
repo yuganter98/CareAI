@@ -20,10 +20,10 @@ CareAI is an intelligent healthcare system that:
 ## 🎥 Application Demo
 
 ### Demo 1: Core Functionality
-<video src="https://raw.githubusercontent.com/yuganter98/CareAI/main/assets/videos/Demo1.mp4" controls="controls" muted="muted" width="100%"></video>
+https://github.com/yuganter98/CareAI/raw/main/assets/videos/Demo1.mp4
 
 ### Demo 2: Copilot & Agents
-<video src="https://raw.githubusercontent.com/yuganter98/CareAI/main/assets/videos/Demo2.mp4" controls="controls" muted="muted" width="100%"></video>
+https://github.com/yuganter98/CareAI/raw/main/assets/videos/Demo2.mp4
 
 ---
 
