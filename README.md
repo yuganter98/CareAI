@@ -17,6 +17,25 @@ CareAI is an intelligent healthcare system that:
 
 ---
 
+## 🎥 Application Demo
+
+<table align="center">
+  <tr>
+    <td align="center"><strong>Demo 1: Core Functionality</strong></td>
+    <td align="center"><strong>Demo 2: Copilot & Agents</strong></td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <video src="./assets/videos/Demo1.mp4" controls="controls" muted="muted" style="width: 100%;"></video>
+    </td>
+    <td align="center" width="50%">
+      <video src="./assets/videos/Demo2.mp4" controls="controls" muted="muted" style="width: 100%;"></video>
+    </td>
+  </tr>
+</table>
+
+---
+
 ## 🧠 Overview
 
 Medical reports are complex and difficult to interpret, especially for non-medical users.
