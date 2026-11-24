@@ -27,6 +27,7 @@ from app.agents.llm_client import llm, parse_json_block
 from app.agents.rag_pipeline import search_similar_chunks
 from app.schemas.ai import ExplainabilityOutput
 from app.db.models import HealthMetric
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +127,7 @@ async def explain(
 
     try:
         response = await llm.chat.completions.create(
-            model="gpt-4o-mini",
+            model=settings.LLM_MODEL,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user",   "content": user_message},

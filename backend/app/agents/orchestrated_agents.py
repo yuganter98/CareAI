@@ -7,6 +7,7 @@ from app.agents.base import BaseAgent
 from app.agents.report_analyzer import analyze_report
 from app.agents.llm_client import llm, parse_json_block
 from app.schemas.ai import DiagnosisFlagsOutput, InsightOutput
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ class DiagnosisAgent(BaseAgent):
         flags: list[str] = []
         try:
             resp = await llm.chat.completions.create(
-                model="gpt-4o-mini",
+                model=settings.LLM_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
             )
@@ -129,7 +130,7 @@ class InsightsAgent(BaseAgent):
         insight: str = ""
         try:
             resp = await llm.chat.completions.create(
-                model="gpt-4o-mini",
+                model=settings.LLM_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.4,
             )

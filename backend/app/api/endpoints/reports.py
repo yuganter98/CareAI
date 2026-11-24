@@ -1,32 +1,36 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from typing import Any, List
+from typing import Any, List, Optional
 import uuid
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.db.models import User, Report
 from app.schemas.report import ReportResponse
-from app.services.upload import save_upload_file
+from app.services.upload import detect_file_type, remove_stored_file, save_upload_file
 
 router = APIRouter()
 
 @router.post("/upload", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
 async def upload_report(
     file: UploadFile = File(...),
-    file_type: str = Form(...),  # Expected form fields (e.g., 'pdf', 'image')
+    # Kept for backwards compatibility with older clients; the server now
+    # derives the type from the validated file extension instead of trusting it.
+    file_type: Optional[str] = Form(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> Any:
-    # Save physical file to disk
+    _, detected_type = detect_file_type(file.filename)
+
+    # Validate + save physical file to disk
     file_path = await save_upload_file(file)
-    
+
     # Save record metadata to PostgreSQL database
     report = Report(
         user_id=current_user.id,
         file_url=file_path,
-        file_type=file_type
+        file_type=detected_type
     )
     db.add(report)
     await db.commit()
@@ -77,5 +81,15 @@ async def delete_report(
     if not report:
         raise HTTPException(status_code=404, detail="Report not found or access denied.")
     
+    file_path = report.file_url
     await db.delete(report)
     await db.commit()
+
+    # Clean up artefacts outside the database so deleted reports don't
+    # linger on disk or keep surfacing in RAG / Copilot answers.
+    remove_stored_file(file_path)
+    try:
+        from app.agents.rag_pipeline import delete_report_vectors
+        delete_report_vectors(str(report_uuid))
+    except Exception as e:
+        print(f"Warning: could not remove FAISS vectors for report {report_uuid}: {e}")

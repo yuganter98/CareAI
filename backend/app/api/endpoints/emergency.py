@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from typing import Optional
+from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
@@ -10,9 +11,10 @@ from app.agents.emergency_agent import evaluate_and_trigger_emergency
 router = APIRouter()
 
 class EmergencyContactCreate(BaseModel):
-    name: str
-    phone_number: str
-    relation: str = None
+    name: str = Field(min_length=1, max_length=100)
+    # E.164-ish: optional leading +, then 7-15 digits (spaces/dashes allowed)
+    phone_number: str = Field(pattern=r"^\+?[0-9][0-9 \-]{6,19}$")
+    relation: Optional[str] = Field(default=None, max_length=50)
 
 @router.post("/add-contact", status_code=status.HTTP_201_CREATED)
 async def add_emergency_contact(

@@ -3,7 +3,8 @@
  *
  * Architecture:
  *   1. Seeds state from REST: GET /agents/logs/{report_id}
- *   2. Opens WebSocket: ws://localhost:8000/ws/agents/{report_id}
+ *   2. Opens WebSocket: {NEXT_PUBLIC_API_URL as ws(s)://}/ws/agents/{report_id}
+ *      (authenticated by the careai_token cookie sent on the handshake)
  *   3. Merges incoming events into a deduplicated agent state map
  *   4. On disconnect → exponential backoff reconnect (max 3 attempts)
  *   5. After max retries → falls back to REST polling every 3s
@@ -15,7 +16,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { CareAI } from "@/lib/api";
+import { CareAI, BACKEND_URL } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ interface UseAgentStreamReturn {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const WS_BASE       = "ws://localhost:8000";
+const WS_BASE       = BACKEND_URL.replace(/^http/, "ws");   // http→ws, https→wss
 const MAX_RETRIES   = 3;
 const BASE_DELAY_MS = 1000;   // 1s → 2s → 4s
 const POLL_INTERVAL = 3000;

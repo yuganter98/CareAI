@@ -20,11 +20,15 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int
     
     # Storage
-    UPLOAD_DIR: str
+    UPLOAD_DIR: str = "./uploads"
+    MAX_UPLOAD_SIZE_MB: int = 10
 
     # AI Config
     OPENAI_API_KEY: str | None = None
     OPENAI_API_BASE: str | None = None
+    # Model name sent to the OpenAI-compatible endpoint (LM Studio ignores it,
+    # OpenAI / other providers need a real model id).
+    LLM_MODEL: str = "gpt-4o-mini"
 
     model_config = SettingsConfigDict(
         env_file=".env",

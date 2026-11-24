@@ -152,7 +152,7 @@ async def copilot_chat(
     # 6. Call LLM
     try:
         response = await _client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=settings.LLM_MODEL,
             messages=messages,
             temperature=0.4,
         )

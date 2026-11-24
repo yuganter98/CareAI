@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
 from typing import Optional
 import uuid
@@ -13,11 +13,18 @@ from app.db.models import User, Medication
 router = APIRouter()
 
 class MedicationCreate(BaseModel):
-    medicine_name: str
-    dosage: str
-    time: str  # Format strictly 'HH:MM'
+    medicine_name: str = Field(min_length=1, max_length=200)
+    dosage: str = Field(min_length=1, max_length=100)
+    # 24h 'HH:MM' — the reminder scheduler matches on this exact format
+    time: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     start_date: datetime
     end_date: Optional[datetime] = None
+
+    @model_validator(mode="after")
+    def check_dates(self):
+        if self.end_date and self.end_date < self.start_date:
+            raise ValueError("end_date must be on or after start_date")
+        return self
 
 @router.post("/add", status_code=status.HTTP_201_CREATED)
 async def add_medication(

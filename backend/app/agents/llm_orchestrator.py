@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from app.agents.llm_client import llm, parse_json_block
 from app.schemas.ai import OrchestratorPlan
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ async def plan_workflow(report_text: str) -> OrchestratorPlan:
 
     try:
         response = await llm.chat.completions.create(
-            model="gpt-4o-mini",
+            model=settings.LLM_MODEL,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": f"Report excerpt:\n{snippet}"},

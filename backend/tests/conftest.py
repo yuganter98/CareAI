@@ -1,3 +1,22 @@
+import os
+
+# Placeholder settings so the app imports without a real .env (CI, fresh clones).
+# Tests mock the DB and LLM, so these never reach a real service. Variables
+# already set in the shell are left untouched.
+for _k, _v in {
+    "POSTGRES_USER": "postgres",
+    "POSTGRES_PASSWORD": "postgres",
+    "POSTGRES_SERVER": "localhost",
+    "POSTGRES_PORT": "5432",
+    "POSTGRES_DB": "careai_test",
+    "DATABASE_URL": "postgresql+asyncpg://postgres:postgres@localhost:5432/careai_test",
+    "SECRET_KEY": "test-secret-key-not-for-production",
+    "ALGORITHM": "HS256",
+    "ACCESS_TOKEN_EXPIRE_MINUTES": "30",
+    "REFRESH_TOKEN_EXPIRE_DAYS": "7",
+}.items():
+    os.environ.setdefault(_k, _v)
+
 import uuid
 import pytest
 import pytest_asyncio
