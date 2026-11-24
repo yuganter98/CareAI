@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 import uuid
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_owned_report
 from app.db.session import get_db
 from app.db.models import User, Report
 from app.agents.extractor import process_report_file
@@ -27,20 +27,8 @@ async def api_analyze_report(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    try:
-        report_uuid = uuid.UUID(payload.report_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid report_id format.")
-
-    # 1. Verify Report Access
-    result = await db.execute(select(Report).where(
-        Report.id == report_uuid, 
-        Report.user_id == current_user.id
-    ))
-    report = result.scalars().first()
-    
-    if not report:
-        raise HTTPException(status_code=404, detail="Report not found or access denied.")
+    report = await get_owned_report(db, payload.report_id, current_user)
+    report_uuid = report.id
         
     # 2. Extract Document Text via Fast PyMuPDF/Tesseract Engine
     try:
@@ -78,17 +66,8 @@ async def api_query_report(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    try:
-        report_uuid = uuid.UUID(payload.report_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid report_id format.")
-        
-    result = await db.execute(select(Report).where(Report.id == report_uuid, Report.user_id == current_user.id))
-    report = result.scalars().first()
-    
-    if not report:
-        raise HTTPException(status_code=404, detail="Report not found or access denied.")
-        
+    await get_owned_report(db, payload.report_id, current_user)
+
     try:
         answer = await query_report(report_id=payload.report_id, question=payload.question)
         return {"answer": answer}
@@ -126,17 +105,8 @@ async def api_process_report(
     """
     from app.agents.orchestrator import orchestrator
     
-    try:
-        report_uuid = uuid.UUID(payload.report_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid report_id format.")
-
-    # 1. Verify Authentication Access
-    result = await db.execute(select(Report).where(Report.id == report_uuid, Report.user_id == current_user.id))
-    report = result.scalars().first()
-    
-    if not report:
-        raise HTTPException(status_code=404, detail="Report not found or access denied.")
+    report = await get_owned_report(db, payload.report_id, current_user)
+    report_uuid = report.id
         
     # 2. Extract Document Physics
     try:
@@ -189,7 +159,11 @@ async def api_agent_query(
 ):
     """Phase 5 Orchestrated User RAG QA Pipeline."""
     from app.agents.orchestrator import orchestrator
-    
+
+    # Ownership check — without it any logged-in user could read another
+    # patient's report content through the RAG index.
+    await get_owned_report(db, payload.report_id, current_user)
+
     initial_state = {
         "report_id": payload.report_id,
         "question": payload.question
@@ -223,16 +197,7 @@ async def api_explain(
     """
     from app.agents.explainability import explain
 
-    try:
-        report_uuid = uuid.UUID(payload.report_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid report_id format.")
-
-    result = await db.execute(
-        select(Report).where(Report.id == report_uuid, Report.user_id == current_user.id)
-    )
-    if not result.scalars().first():
-        raise HTTPException(status_code=404, detail="Report not found or access denied.")
+    await get_owned_report(db, payload.report_id, current_user)
 
     try:
         return await explain(

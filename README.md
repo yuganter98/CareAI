@@ -234,10 +234,15 @@ Emergency        Completed   210ms
 | Concern    | Implementation          |
 | ---------- | ----------------------- |
 | Auth       | JWT in httpOnly cookies |
+| WebSockets | Cookie-authenticated handshake + report ownership check |
+| Data access | Every report-scoped endpoint enforces ownership |
+| Uploads    | Extension allowlist, magic-byte check, size limit (`MAX_UPLOAD_SIZE_MB`) |
 | CORS       | Restricted origins      |
 | Validation | Pydantic                |
 | Passwords  | bcrypt                  |
 | Secrets    | `.env` + `.gitignore`   |
+
+Deleting a report also removes its stored file and its FAISS vectors, so it no longer appears in RAG or Copilot answers.
 
 ---
 
@@ -265,9 +270,31 @@ python run.py
 
 # Frontend
 cd frontend
+cp .env.example .env.local   # NEXT_PUBLIC_API_URL, defaults to http://localhost:8000
 npm install
 npm run dev
 ```
+
+### Configuration
+
+| Variable | Where | Default | Purpose |
+| -------- | ----- | ------- | ------- |
+| `LLM_MODEL` | backend `.env` | `gpt-4o-mini` | Model id sent to the OpenAI-compatible endpoint |
+| `OPENAI_API_BASE` | backend `.env` | `http://localhost:1234/v1` | LM Studio / OpenAI / any compatible server |
+| `MAX_UPLOAD_SIZE_MB` | backend `.env` | `10` | Upload size limit |
+| `NEXT_PUBLIC_API_URL` | frontend `.env.local` | `http://localhost:8000` | Backend origin (WebSocket URL derived from it) |
+
+The embedding model loads lazily on the first RAG call, so the API starts fast.
+
+### Tests
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+Tests mock the database and LLM, need no `.env`, and run in GitHub Actions on every push to `backend/`.
 
 ---
 

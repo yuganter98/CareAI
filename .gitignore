@@ -49,3 +49,10 @@ htmlcov/
 # ── OS ─────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+
+# Local scratch output
+*_output*.txt
+recent*.txt
+
+# graphify knowledge graph (local tooling)
+graphify-out/

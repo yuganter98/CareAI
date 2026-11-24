@@ -64,7 +64,7 @@ async def generate_health_insights(db: AsyncSession, user_id: str) -> Dict[str, 
     
     try:
         response = await openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=settings.LLM_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Historical Metrics (Chronological):\n{json.dumps(timeline_data)}"}

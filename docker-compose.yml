@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 123
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-123}   # override via shell env or a root .env
       POSTGRES_DB: careai_db
     volumes:
       - postgres_data:/var/lib/postgresql/data

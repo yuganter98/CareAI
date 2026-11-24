@@ -51,7 +51,7 @@ async def extract_and_store_metrics(
 
     try:
         response = await openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=settings.LLM_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Extracted Medical Text:\n{report_text}"}

@@ -1,4 +1,6 @@
-const API_BASE = "http://localhost:8000/api/v1";
+// Backend origin is configurable per environment (see frontend/.env.example).
+export const BACKEND_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
+const API_BASE = `${BACKEND_URL}/api/v1`;
 
 export async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
   const headers = {
