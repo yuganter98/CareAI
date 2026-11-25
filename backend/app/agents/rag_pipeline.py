@@ -65,6 +65,34 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP):
     return chunks
 
 
+def chunk_pages(pages, chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP):
+    """
+    Chunk a page-aware extraction, keeping each chunk tied to one page.
+
+    Chunking never crosses a page boundary, so every chunk can cite exactly one
+    page. Returns dicts of {"text", "page", "index"}, where `index` counts
+    chunks within that page and makes the chunk id stable.
+    """
+    out = []
+    for page in pages:
+        page_no = int(page.get("page", 1))
+        for i, piece in enumerate(chunk_text(page.get("text", ""), chunk_size, overlap)):
+            if piece.strip():
+                out.append({"text": piece, "page": page_no, "index": i})
+    return out
+
+
+def make_chunk_id(report_id: str, page: int, index: int) -> str:
+    """
+    Stable identifier for one chunk: report, page, position within the page.
+
+    It does not depend on the chunk's position in the FAISS index, so deleting
+    another report never renames it, and re-processing the same report produces
+    the same ids. Eval sets reference chunks by this id.
+    """
+    return f"{report_id}:{page}:{index}"
+
+
 def _write_metadata(metadata_list):
     np.save(METADATA_PATH, np.array(metadata_list, dtype=object))
 
@@ -83,26 +111,41 @@ def load_metadata():
     return []
 
 
-def embed_and_store(report_id: str, text: str):
+def embed_and_store(report_id: str, content):
     """
     Core RAG Pipeline Storage:
-    1. Chunks the text
+    1. Chunks the text, one chunk per page section
     2. Embeds the chunks locally
-    3. Stores vectors in FAISS
+    3. Stores vectors in FAISS with a stable chunk id and page number
+
+    `content` is either the page list from `extract_report_pages()` or a plain
+    string, which is treated as a single page.
 
     Re-processing a report replaces its previous vectors instead of
     duplicating them.
     """
-    chunks = chunk_text(text)
+    pages = [{"page": 1, "text": content}] if isinstance(content, str) else list(content)
+
+    chunks = chunk_pages(pages)
     if not chunks:
         return
 
     # Generate embeddings
-    embeddings = get_embedding_model().encode(chunks)
+    embeddings = get_embedding_model().encode([c["text"] for c in chunks])
     embeddings = np.array(embeddings).astype("float32")  # FAISS strictly requires float32
 
-    # Store parallel metadata so we don't lose the context of the chunks
-    metadata = [{"report_id": str(report_id), "chunk": chunk} for chunk in chunks]
+    # Store parallel metadata so we don't lose the context of the chunks.
+    # "chunk" holds the text (the key every agent reads); chunk_id and page are
+    # what citations and the eval sets are built on.
+    metadata = [
+        {
+            "chunk_id": make_chunk_id(str(report_id), c["page"], c["index"]),
+            "report_id": str(report_id),
+            "page": c["page"],
+            "chunk": c["text"],
+        }
+        for c in chunks
+    ]
 
     with _index_lock:
         _remove_report_vectors_unlocked(str(report_id))
