@@ -8,7 +8,7 @@ import uuid
 from app.api.deps import get_current_user, get_owned_report
 from app.db.session import get_db
 from app.db.models import User, Report
-from app.agents.extractor import process_report_file
+from app.agents.extractor import extract_report_pages, join_pages
 from app.agents.rag_pipeline import embed_and_store
 from app.agents.report_analyzer import analyze_report, query_report
 
@@ -32,13 +32,14 @@ async def api_analyze_report(
         
     # 2. Extract Document Text via Fast PyMuPDF/Tesseract Engine
     try:
-        extracted_text = process_report_file(report.file_url, file_type=report.file_type)
+        pages = extract_report_pages(report.file_url, file_type=report.file_type)
+        extracted_text = join_pages(pages)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to extract document text: {e}")
         
     # 3. Store text embeddings silently inside Local FAISS DB
     try:
-        embed_and_store(report_id=payload.report_id, text=extracted_text)
+        embed_and_store(report_id=payload.report_id, content=pages)
     except Exception as e:
         print(f"Warning: Chunking and Embedding failed cleanly - {e}")
 
@@ -110,13 +111,14 @@ async def api_process_report(
         
     # 2. Extract Document Physics
     try:
-        extracted_text = process_report_file(report.file_url, file_type=report.file_type)
+        pages = extract_report_pages(report.file_url, file_type=report.file_type)
+        extracted_text = join_pages(pages)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Extraction core failed: {e}")
         
     # 3. Store FAISS vector graph
     try:
-        embed_and_store(report_id=payload.report_id, text=extracted_text)
+        embed_and_store(report_id=payload.report_id, content=pages)
     except Exception as e:
         print(f"Warning: FAISS chunking node failed: {e}")
 

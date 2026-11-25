@@ -4,3 +4,6 @@
 pytest
 pytest-asyncio
 httpx
+
+# Eval corpus generation
+reportlab

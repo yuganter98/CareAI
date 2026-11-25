@@ -56,3 +56,6 @@ recent*.txt
 
 # graphify knowledge graph (local tooling)
 graphify-out/
+
+# Generated eval corpus (rebuild with: python eval/generate_reports.py)
+eval/data/
