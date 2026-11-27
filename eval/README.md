@@ -55,13 +55,47 @@ nothing has been tuned against the test set yet — as expected for a baseline.
 ### Not yet measured
 
 The LLM stages (`extraction`, `risk`, `injection`) are implemented and run
-against the app's own prompts, but need an OpenAI-compatible endpoint. Set
-`OPENAI_API_BASE` and `LLM_MODEL` in `backend/.env`, then `make eval-full`.
-The answer-quality stage and the LLM-judge calibration are still to come.
+against the app's own prompts, but need an endpoint — see below. The
+answer-quality stage and the LLM-judge calibration are still to come.
 
 Twelve reports failed to index: they are the scanned PNG variants, and
 Tesseract was not installed on the machine that produced this baseline. The
 OCR extraction number is therefore still unmeasured, not zero.
+
+## Running the LLM stages
+
+The retrieval stages need nothing but a clone. The three LLM stages call the
+app's own prompts, so they need an OpenAI-compatible endpoint. Any of these
+work; set them in `backend/.env`:
+
+| Provider | `OPENAI_API_BASE` | `LLM_MODEL` | Notes |
+| --- | --- | --- | --- |
+| OpenRouter | `https://openrouter.ai/api/v1` | `openai/gpt-4o-mini` | one key, many models; key from <https://openrouter.ai/keys> |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` | |
+| LM Studio | `http://localhost:1234/v1` | whatever is loaded | free, local, no key |
+
+Then:
+
+```bash
+make check-llm     # one call: confirms key, base_url and model id
+make eval-full     # every stage
+```
+
+`make check-llm` exists because the stages make several hundred **sequential**
+calls and wrap each row in its own `try`/`except`, so one unreadable report
+cannot abort a twenty-minute run. The cost of that design is that a wrong key
+looks identical to every row failing. The preflight turns that into one
+request and a message naming the base_url, the model and the provider's own
+error. `make eval-full` depends on it, so a bad key costs one call.
+
+**Scale of a full run.** `--limit` (default 150) caps the extraction and risk
+samples, and all 30 injection cases always run: roughly 330 calls, one at a
+time. On a small hosted model that is some tens of minutes and cents rather
+than dollars. `--limit 20` is enough to see whether a change moved anything
+before paying for the full number.
+
+The model and base_url used are recorded in the results file under
+`run.llm`, because an extraction accuracy figure means nothing without them.
 
 ## Generating the corpus
 

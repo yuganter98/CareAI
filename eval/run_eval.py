@@ -39,6 +39,17 @@ REPO = HERE.parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(REPO / "backend"))
 
+# The app reads env_file=".env" relative to the working directory, so running
+# the harness from the repo root would never see backend/.env. Load it here.
+_env_file = REPO / "backend" / ".env"
+if _env_file.exists():
+    for _line in _env_file.read_text(encoding="utf-8").splitlines():
+        _line = _line.strip()
+        if not _line or _line.startswith("#") or "=" not in _line:
+            continue
+        _name, _, _val = _line.partition("=")
+        os.environ.setdefault(_name.strip(), _val.strip().strip('"').strip("'"))
+
 # Placeholders so importing the app does not require a provisioned .env.
 # Only the LLM settings below are actually used by these stages.
 for _key, _value in {
@@ -234,6 +245,58 @@ def stage_retrieval(questions: Sequence[dict], verbose: bool) -> dict:
     return results
 
 
+# ── LLM preflight ───────────────────────────────────────────────────────
+
+SETUP_HINT = "\n".join([
+    "Set these in backend/.env. For OpenRouter:",
+    '  OPENAI_API_KEY="sk-or-v1-..."',
+    '  OPENAI_API_BASE="https://openrouter.ai/api/v1"',
+    '  LLM_MODEL="openai/gpt-4o-mini"',
+])
+
+
+async def check_llm() -> dict:
+    """One tiny call before the LLM stages start.
+
+    Those stages make several hundred sequential calls, and each row is wrapped
+    in its own try/except so one bad report cannot abort a long run. The cost
+    of that is that a wrong key or an unserved model id looks like every row
+    failing. This turns it into one failed request and a clear message.
+    """
+    from app.agents.llm_client import llm
+    from app.core.config import settings
+
+    # AsyncOpenAI happily constructs with a placeholder key, so llm is almost
+    # never None; the missing-key case has to be checked here.
+    placeholder = (None, "", "lm-studio", "your-key-here")
+    if llm is None or settings.OPENAI_API_KEY in placeholder:
+        raise SystemExit("No usable OPENAI_API_KEY.\n" + SETUP_HINT)
+
+    started = time.monotonic()
+    try:
+        reply = await llm.chat.completions.create(
+            model=settings.LLM_MODEL,
+            messages=[{"role": "user", "content": "Reply with the single word: ready"}],
+            temperature=0,
+            max_tokens=8,
+        )
+    except Exception as exc:
+        raise SystemExit(
+            f"LLM preflight failed.\n"
+            f"  base_url: {settings.OPENAI_API_BASE}\n"
+            f"  model:    {settings.LLM_MODEL}\n"
+            f"  error:    {type(exc).__name__}: {exc}\n"
+            + SETUP_HINT
+        ) from exc
+
+    elapsed = time.monotonic() - started
+    content = (reply.choices[0].message.content or "").strip()
+    print(f"llm: {settings.LLM_MODEL} at {settings.OPENAI_API_BASE} "
+          f"replied {content!r} in {elapsed:.2f}s")
+    return {"model": settings.LLM_MODEL, "base_url": settings.OPENAI_API_BASE,
+            "preflight_latency_s": round(elapsed, 3), "reply": content}
+
+
 # ── Stage: extraction ───────────────────────────────────────────────────
 
 async def stage_extraction(data_dir: Path, rows: Sequence[dict], verbose: bool) -> dict:
@@ -393,6 +456,8 @@ def main() -> None:
     parser.add_argument("--index-dir", type=Path, default=HERE / "data" / "index",
                         help="where the eval's FAISS index lives")
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--check-llm", action="store_true",
+                        help="make one test call to the configured LLM and exit")
     args = parser.parse_args()
 
     # Point the app's index at the eval's own directory. Without this the
@@ -402,6 +467,10 @@ def main() -> None:
     import app.agents.rag_pipeline as rag
     rag.FAISS_INDEX_PATH = str(args.index_dir / "faiss_index.bin")
     rag.METADATA_PATH = str(args.index_dir / "faiss_metadata.npy")
+
+    if args.check_llm:
+        asyncio.run(check_llm())
+        return
 
     stages = ALL_STAGES if args.stages == "all" else tuple(s.strip() for s in args.stages.split(","))
     unknown = set(stages) - set(ALL_STAGES)
@@ -444,6 +513,7 @@ def main() -> None:
 
     llm_stages = [s for s in stages if s in ("extraction", "risk", "injection")]
     if llm_stages:
+        results["run"]["llm"] = asyncio.run(check_llm())
         sample_extraction = stratified(extraction_rows, "patient_id", args.limit)
         # Messy scans are ~1% of the corpus, so a plain sample would miss them.
         # They are the honest extraction number, so always measure all of them.
