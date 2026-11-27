@@ -106,8 +106,8 @@ async def api_process_report(
     Phase 5 Orchestrated Workflow: Replaces legacy analyze-report.
     Uses the Multi-Agent Hivemind to process reports comprehensively.
     """
-    from app.agents.orchestrator import orchestrator
-    
+    from app.agents.pipeline import run_report_pipeline
+
     report = await get_owned_report(db, payload.report_id, current_user)
     report_uuid = report.id
         
@@ -134,25 +134,20 @@ async def api_process_report(
     except Exception as e:
         print(f"Warning: Structured SQL extraction failed - {e}")
 
-    # 5. INITIALIZE MULTI-AGENT STATE GRAPH
-    initial_state = {
-        "report_text": safe_text,
-        "report_id": payload.report_id,
-        "user_id": str(current_user.id),
-        "db": db # Safe to inject into scoped background graph dynamically
-    }
-    
+    # 5. RUN THE AGENT GRAPH
+    # `db` is passed separately rather than inside the state: graph state has
+    # to be serialisable for a checkpoint to be written, and a database
+    # session is not. See app/agents/graph.py.
     try:
-        # Offload 100% of reasoning completely to the Orchestrator network
-        final_state = await orchestrator.process_event("PROCESS_REPORT", initial_state)
-        
-        # Strip un-serializable db objects before responding back via REST JSON over HTTP
-        if "db" in final_state:
-            del final_state["db"]
-            
+        final_state = await run_report_pipeline(
+            report_id=payload.report_id,
+            report_text=safe_text,
+            user_id=str(current_user.id),
+            db=db,
+        )
         return attach_disclaimer(final_state)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Agent Graph Orchestrator kernel failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Agent graph failed: {e}")
 
 
 @router.post("/agent-query")
@@ -162,23 +157,18 @@ async def api_agent_query(
     current_user: User = Depends(get_current_user)
 ):
     """Phase 5 Orchestrated User RAG QA Pipeline."""
-    from app.agents.orchestrator import orchestrator
+    from app.agents.pipeline import answer_question
 
     # Ownership check — without it any logged-in user could read another
     # patient's report content through the RAG index.
     await get_owned_report(db, payload.report_id, current_user)
 
-    initial_state = {
-        "report_id": payload.report_id,
-        "question": payload.question
-    }
-    
     try:
-        final_state = await orchestrator.process_event("USER_QUERY", initial_state)
+        result = await answer_question(payload.report_id, payload.question)
         return {"answer": with_disclaimer(
-            final_state.get("answer", "No answer found by the graph."))}
+            result.get("answer", "No answer found."))}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Query workflow graph failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Query workflow failed: {e}")
 
 
 # ========================================================

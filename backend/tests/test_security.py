@@ -93,13 +93,19 @@ class TestAgentQueryOwnership:
         app.dependency_overrides[get_db] = override_db
         app.dependency_overrides[get_current_user] = override_user
 
-        with patch("app.agents.orchestrator.orchestrator.process_event", new_callable=AsyncMock) as pe:
+        # Patches the pipeline entry point, which replaced
+        # orchestrator.process_event in the LangGraph port. The assertion is
+        # the same and is the point of the test: the ownership check must run
+        # before any agent work starts, so a foreign report_id never reaches
+        # the RAG index at all.
+        with patch("app.agents.pipeline.answer_question",
+                   new_callable=AsyncMock) as pipeline:
             resp = await async_client.post(
                 "/api/v1/ai/agent-query",
                 json={"report_id": str(uuid.uuid4()), "question": "What is my glucose?"},
             )
         assert resp.status_code == 404
-        pe.assert_not_called()
+        pipeline.assert_not_called()
 
 
 # ── Upload validation ───────────────────────────────────────────
