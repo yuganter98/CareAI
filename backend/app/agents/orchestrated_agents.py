@@ -172,7 +172,9 @@ class EmergencyAgent(BaseAgent):
     """
     async def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
         self.logger.info("Executing EmergencyAgent...")
-        risk_level = state.get("risk_level", "").upper()
+        # Stripped as well as upper-cased: this is the last check before
+        # an alert is or is not sent, so a stray space must not silence it.
+        risk_level = str(state.get("risk_level") or "").strip().upper()
 
         if risk_level == "HIGH":
             self.logger.warning("HIGH risk confirmed — dispatching emergency alerts.")

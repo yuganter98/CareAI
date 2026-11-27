@@ -39,3 +39,8 @@ sentence-transformers==5.1.1
 torch==2.8.0
 faiss-cpu==1.13.2
 apscheduler
+
+# The report pipeline's topology (app/agents/graph.py). Pinned for the
+# same reason as the embedding stack: the gate and the tests describe a
+# behaviour, and a framework is free to change its routing semantics.
+langgraph==1.0.10
