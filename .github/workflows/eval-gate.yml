@@ -1,0 +1,165 @@
+name: Eval quality gate
+
+# Two jobs, split by whether the number is deterministic.
+#
+# `gate` blocks a pull request. It runs retrieval only, which needs no LLM and
+# no API key: embeddings are not sampled, so the same corpus and model give
+# the same ranking every time. A red check here means a real regression.
+#
+# `nightly` runs the LLM stages and never blocks. Those metrics move on their
+# own - four identical injection runs gave 43.3%, 36.7%, 40.0%, 40.0% - so
+# gating on them would mean flaky reds, a key in CI and a margin wide enough
+# to hide a genuine drop. eval/gate.toml explains the split.
+
+on:
+  pull_request:
+    paths:
+      - "backend/app/agents/**"
+      - "backend/app/core/**"
+      - "eval/**"
+      - ".github/workflows/eval-gate.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/app/agents/**"
+      - "backend/app/core/**"
+      - "eval/**"
+  schedule:
+    # 03:30 UTC. Nightly, so the LLM numbers are tracked over time without
+    # spending a request per pull request.
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  # A new push supersedes the old run; the gate takes minutes, not seconds.
+  group: eval-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Retrieval gate (deterministic, blocking)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          pip install -r requirements.txt
+          pip install --no-cache-dir reportlab
+
+      # ~90MB, and it never changes unless the model name does. Keyed on the
+      # name so a model swap misses the cache rather than silently reusing the
+      # old vectors, which would make a retrieval comparison meaningless.
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-all-MiniLM-L6-v2-v1
+
+      # eval/data is gitignored: the corpus is generated, not committed, and
+      # the generator is seeded so every run produces the same reports. That
+      # is what makes the gate's numbers comparable at all.
+      - name: Generate the corpus and test sets
+        run: |
+          python eval/generate_reports.py
+          python eval/build_testsets.py
+          python eval/generate_injections.py
+
+      - name: Run the retrieval stages
+        run: python eval/run_eval.py --stages index,retrieval --label ci
+
+      # The newest results file rather than a date-stamped name: run_eval.py
+      # names it with the *local* date, so reconstructing it with `date -u`
+      # would break on a non-UTC runner or a run that straddles midnight -
+      # and the gate would go red for the wrong reason.
+      - name: Check the gate
+        run: python eval/check_gate.py "$(ls -t eval/results/*.json | head -1)"
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-${{ github.sha }}
+          path: eval/results/*.json
+          retention-days: 30
+
+  nightly:
+    name: Full eval (LLM stages, reported not blocking)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          pip install -r requirements.txt
+          pip install --no-cache-dir reportlab
+
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-all-MiniLM-L6-v2-v1
+
+      - name: Generate the corpus and test sets
+        run: |
+          python eval/generate_reports.py
+          python eval/build_testsets.py
+          python eval/generate_injections.py
+
+      # Without a key the LLM stages cannot run at all, and run_eval.py now
+      # aborts rather than writing a partial. Say so and stop, instead of
+      # leaving a green tick on a run that measured nothing.
+      - name: Check the LLM endpoint
+        id: llm
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_BASE: ${{ vars.OPENAI_API_BASE }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::warning::No OPENAI_API_KEY secret is set, so the LLM stages were skipped."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python eval/run_eval.py --check-llm
+
+      - name: Run every stage
+        if: steps.llm.outputs.skip != 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_BASE: ${{ vars.OPENAI_API_BASE }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+        run: python eval/run_eval.py --stages all --label nightly
+
+      # The deterministic floors still apply to a nightly run; the LLM numbers
+      # in the same file are reported by run_eval.py's own summary and are not
+      # part of the gate.
+      - name: Check the deterministic floors
+        if: steps.llm.outputs.skip != 'true'
+        run: python eval/check_gate.py "$(ls -t eval/results/*.json | head -1)"
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-eval-${{ github.run_id }}
+          path: eval/results/*.json
+          retention-days: 90

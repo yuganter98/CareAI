@@ -1,0 +1,93 @@
+# CI quality gate: the floors a pull request may not fall through.
+#
+# TOML because it takes comments and `tomllib` is in the standard library from
+# Python 3.11. A gate nobody can read is a gate nobody will maintain, and the
+# project has avoided new dependencies elsewhere for the same reason BM25 was
+# written by hand.
+#
+# ── Only deterministic metrics belong here ──────────────────────────────
+#
+# The build plan called extraction accuracy and high-risk recall
+# "deterministic". They are not: they are LLM outputs, and four identical
+# injection runs gave 43.3%, 36.7%, 40.0%, 40.0% (see eval/README.md). Gating
+# on a number that moves on its own buys flaky red builds, an API key in CI
+# and a few cents per pull request - and the margin needed to absorb that
+# noise would be wide enough to hide a real regression anyway. Those metrics
+# run nightly and are reported, never blocking.
+#
+# Retrieval is different. Embeddings are not sampled, so the same corpus and
+# the same model give the same vectors and the same ranking every time. The
+# whole PR gate therefore needs no API key and costs nothing to run.
+#
+# `floor` is an absolute value, not a delta against the last run, so a drift
+# of several small "within margin" steps cannot walk a metric down unnoticed.
+# Change a floor only in a commit whose message says what changed and why the
+# new number is right.
+
+[baseline]
+source = "eval/results/2026-11-27_week2.json"
+reconfirmed = "eval/results/2026-11-27_citiming.json"
+note = "Week 2 numbers, after the ownership-filter fix."
+
+# ── Floors ──────────────────────────────────────────────────────────────
+
+[[metrics]]
+path = "retrieval.dense_filtered.overall.recall_at_5"
+name = "Recall@5 (shipped retrieval path)"
+measured = 0.300
+floor = 0.270
+# 3pp. The metric is exact, so this absorbs a corpus regeneration, not noise.
+
+[[metrics]]
+path = "retrieval.dense_filtered.overall.mrr_at_10"
+name = "MRR@10 (shipped retrieval path)"
+measured = 0.230
+floor = 0.207
+
+[[metrics]]
+path = "retrieval.dense_filtered.overall.ndcg_at_10"
+name = "nDCG@10 (shipped retrieval path)"
+measured = 0.285
+floor = 0.257
+
+[[metrics]]
+path = "retrieval.patient_filtered.overall.recall_at_5"
+name = "Recall@5 (exhaustive scan, the ceiling)"
+measured = 0.300
+floor = 0.270
+
+# ── Relations ───────────────────────────────────────────────────────────
+# These guard against the original bug being reintroduced, which a floor on a
+# single metric would not catch.
+
+[[relations]]
+name = "shipped path still beats the pre-fix path by 20pp"
+left = "retrieval.dense_filtered.overall.recall_at_5"
+right = "retrieval.copilot_path_before.overall.recall_at_5"
+min_gap = 0.200
+# copilot_path_before is the pre-fix behaviour, kept in the harness precisely
+# so the regression stays visible. It scored 1.2% against 30.0%. If the
+# shipped path ever sinks to within reach of it, the filter-before-top_k fix
+# has been undone.
+
+[[relations]]
+name = "over-fetch loses nothing against an exhaustive scan"
+left = "retrieval.dense_filtered.overall.recall_at_5"
+right = "retrieval.patient_filtered.overall.recall_at_5"
+min_gap = 0.0
+# They scored identically (30.0%), which is what proves the adaptive
+# over-fetch never truncates a user's own chunks. If dense_filtered falls
+# below the exhaustive scan, the fetch loop has regressed even when Recall@5
+# is still above its floor.
+
+# ── The held-out split ──────────────────────────────────────────────────
+# 16 questions never used while tuning retrieval. The floors above are on the
+# tuning split, which anything fitted to the question set will flatter; this
+# one is the check that a change generalises. It is gated separately and more
+# loosely, because 16 questions means one question is 6.25pp.
+
+[[metrics]]
+path = "retrieval.dense_filtered.held_out.recall_at_5"
+name = "Recall@5 (held-out questions)"
+measured = 0.281
+floor = 0.218          # one question's worth of slack, 6.25pp

@@ -1,6 +1,6 @@
 PY ?= python
 
-.PHONY: help corpus testsets eval eval-retrieval eval-full check-llm compare test clean-eval
+.PHONY: help corpus testsets eval eval-retrieval eval-full check-llm compare gate test clean-eval
 
 help:
 	@echo "corpus          generate the synthetic report corpus (eval/data, gitignored)"
@@ -9,6 +9,7 @@ help:
 	@echo "eval-full       every stage, including the LLM ones (needs an endpoint)"
 	@echo "check-llm       one test call to the configured LLM, then exit"
 	@echo "compare         significance-test the retrieval paths in RESULTS=<file>"
+	@echo "gate            check RESULTS=<file> against the CI floors in eval/gate.toml"
 	@echo "test            backend test suite"
 
 corpus:
@@ -35,6 +36,10 @@ check-llm:
 RESULTS ?= eval/results/2026-11-27_week2.json
 compare:
 	$(PY) eval/compare.py $(RESULTS) --by-type
+
+# What CI blocks a pull request on. Deterministic, so no API key needed.
+gate:
+	$(PY) eval/check_gate.py $(RESULTS)
 
 test:
 	cd backend && $(PY) -m pytest -q

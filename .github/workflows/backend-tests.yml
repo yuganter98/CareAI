@@ -3,9 +3,19 @@ name: Backend tests
 on:
   push:
     branches: [main]
-    paths: ["backend/**", ".github/workflows/backend-tests.yml"]
+    # eval/** is here because tests/test_injection_scoring.py and
+    # tests/test_gate.py load eval/run_eval.py and eval/check_gate.py. Without
+    # it, a change to the harness can break the suite without ever turning a
+    # check red.
+    paths:
+      - "backend/**"
+      - "eval/**"
+      - ".github/workflows/backend-tests.yml"
   pull_request:
-    paths: ["backend/**", ".github/workflows/backend-tests.yml"]
+    paths:
+      - "backend/**"
+      - "eval/**"
+      - ".github/workflows/backend-tests.yml"
 
 jobs:
   pytest:
