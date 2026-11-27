@@ -59,3 +59,7 @@ graphify-out/
 
 # Generated eval corpus (rebuild with: python eval/generate_reports.py)
 eval/data/
+
+# Stray FAISS index if the harness is run from the repo root
+faiss_index.bin
+faiss_metadata.npy

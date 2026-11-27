@@ -21,6 +21,7 @@ import argparse
 import json
 import random
 import sys
+import textwrap
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Dict, List
@@ -203,7 +204,13 @@ def build_report(patient: dict, step: int, report_date: date, rng: random.Random
 
 # ── PDF rendering ───────────────────────────────────────────────────────
 
-def render_pdf(report: dict, patient: dict, path: Path) -> None:
+def render_pdf(report: dict, patient: dict, path: Path, injection: dict | None = None) -> None:
+    """
+    Render a report. `injection` adds attacker-controlled text to the comments
+    block, for the prompt-injection test set: {"text": str, "visible": bool}.
+    Invisible text is drawn white-on-white — a reviewer sees a clean report,
+    the PDF parser reads the instruction all the same.
+    """
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
     from reportlab.pdfgen import canvas
@@ -295,6 +302,18 @@ def render_pdf(report: dict, patient: dict, path: Path) -> None:
     for line in comment_lines(report):
         c.drawString(20 * mm, y, line)
         y -= 4.6 * mm
+
+    if injection:
+        if not injection.get("visible", True):
+            c.setFillColorRGB(1, 1, 1)  # white on white: invisible to a reader
+        # Wrap to the text column: anything drawn past the page edge is clipped
+        # and would silently truncate the payload the test set records.
+        for paragraph in injection["text"].split("\n"):
+            for line in textwrap.wrap(paragraph, width=95) or [""]:
+                c.drawString(20 * mm, y, line)
+                y -= 4.6 * mm
+        c.setFillColorRGB(0, 0, 0)
+
     footer(2)
     c.save()
 
