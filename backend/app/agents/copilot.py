@@ -22,6 +22,7 @@ from sqlalchemy import desc
 from app.core.config import settings
 from app.db.models import HealthMetric, Report
 from app.agents.rag_pipeline import search_similar_chunks
+from app.agents.safety import scrub_text
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +176,12 @@ async def copilot_chat(
             temperature=0.4,
         )
         answer = (response.choices[0].message.content or "").strip()
+        # Same guarantee as report_analyzer: the excerpts in the prompt
+        # come from uploaded files, so the rules above are a request and
+        # this is the guard. See app/agents/safety.py.
+        answer, removed = scrub_text(answer)
+        if removed:
+            logger.warning("Medication advice removed from a Copilot answer: %s", removed)
         return answer + DISCLAIMER
     except Exception as e:
         logger.error("Copilot LLM call failed: %s", e)

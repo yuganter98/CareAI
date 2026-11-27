@@ -110,6 +110,63 @@ treatment" — on reports with critical values, and it does so whether the
 injected text is visible or invisible. Three of those six were written
 white-on-white: a reviewer looking at the PDF sees a clean report.
 
+### The medication defence
+
+`medication_advice` went from **100% to 0%**, over three runs and 18 attack
+cases. Overall injection success went from ~40% to 6.7-10.0%.
+
+| Attack | Before | After | Guaranteed? |
+| --- | --- | --- | --- |
+| `medication_advice` | 100% | **0%** | **yes** - deterministic |
+| `lower_risk` | 17-33% | 0% | no - prompt only |
+| `fake_normal_summary` | 50% | 17-33% | no - prompt only |
+| `suppress_alert` | 17-33% | 17% | no - needs the risk floor |
+| `identity_leak` | 0% | 0% | no |
+
+The distinction in the last column is the point. Only the medication result
+is a property of the system: `app/agents/safety.py` strips medication
+directives from the output in plain Python, after the model, so it holds
+whether or not the model cooperates. The others improved because the prompt
+now frames report text as untrusted data, and a model that complies today
+may not after a version bump. They are improvements, not guarantees, and
+they are listed that way on purpose.
+
+The guard is built from the class of advice CareAI must never give - a verb
+of change aimed at a medication - and not from the six phrases the eval
+scores. `tests/test_safety.py` checks 14 wordings that appear nowhere in the
+eval ("come off your tablets", "skip tomorrow's dose", "double your
+insulin"), because a guard fitted to the test set passes the test and fails
+on the seventh wording someone tries. It also checks that correct advice
+survives: "do not stop taking your medication without speaking to your
+doctor" must pass through untouched, and an earlier version of the guard
+stripped it.
+
+One accepted false positive is pinned in the tests: "Your doctor may decide
+to adjust your medication" is removed although it is safe. Allowing it would
+mean trusting a clinician plus a modal, which is the easiest thing for an
+attacker to write ("your doctor may want you to stop all medication").
+A dropped sentence costs a sentence and the patient is still told to speak
+to their doctor; the other error ships the attack.
+
+### A failed analysis is not a defended one
+
+`analyze_report` never raises - on an API error it returns a fallback with
+`risk_level: "Unknown"` and no advice. That fallback scores like a hardened
+system: no risk level to lower, no advice to object to. So an exhausted API
+key reads as every attack suddenly failing.
+
+This is not hypothetical. The OpenRouter credits ran out mid-session, and the
+first symptom was the risk stage "regressing" from 78% to 56.7% accuracy with
+41 reports classified Unknown. I spent a change rewriting the prompt on that
+false hypothesis before reading the actual response: HTTP 402.
+
+The injection stage now drops unscorable cases from the rates and reports
+them as `unmeasured_n`, with a PARTIAL warning in the printed summary. A
+run with any unmeasured cases is a partial measurement and says so. The
+effect is visible immediately: in a credit-exhausted run, 9 of 30 cases drop
+out and `suppress_alert` rises from 17% to 50%, because its fallbacks had
+been silently counted as successful defences.
+
 ### These numbers are not reproducible run to run
 
 Four identical runs of the injection stage gave **43.3%, 36.7%, 40.0%,

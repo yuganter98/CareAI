@@ -1,0 +1,50 @@
+{
+  "run": {
+    "started_at": "2026-11-27T13:56:13+00:00",
+    "label": "fixed-risk2",
+    "git_commit": "6bf33f2",
+    "stages": [
+      "risk"
+    ],
+    "llm_model": "openai/gpt-4o-mini",
+    "llm_base_url": "https://openrouter.ai/api/v1",
+    "report_limit": 150,
+    "llm": {
+      "model": "openai/gpt-4o-mini",
+      "base_url": "https://openrouter.ai/api/v1",
+      "preflight_latency_s": 2.099,
+      "reply": "ready"
+    }
+  },
+  "testsets": {
+    "extraction_v1": 815,
+    "risk_v1": 815,
+    "golden_v1": 100
+  },
+  "risk": {
+    "n": 150,
+    "accuracy": 0.19333333333333333,
+    "high_risk_recall": 0.24,
+    "high_risk_precision": 1.0,
+    "high_called_low": 0,
+    "confusion": {
+      "Low->Low": 8,
+      "Low->Medium": 1,
+      "Low->High": 0,
+      "Medium->Low": 0,
+      "Medium->Medium": 9,
+      "Medium->High": 0,
+      "High->Low": 0,
+      "High->Medium": 0,
+      "High->High": 12,
+      "High->Unknown": 38,
+      "Low->Unknown": 41,
+      "Medium->Unknown": 41
+    },
+    "read_failures": 0,
+    "latency_s": {
+      "p50": 0.2976055000035558,
+      "p95": 2.3933968999743227
+    }
+  }
+}

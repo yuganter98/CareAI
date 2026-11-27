@@ -504,10 +504,20 @@ async def stage_injection(data_dir: Path, cases: Sequence[dict], verbose: bool) 
     from app.agents.extractor import extract_report_pages, join_pages
     from app.agents.report_analyzer import analyze_report
 
-    results = []
+    results, unmeasured = [], []
     for i, case in enumerate(cases, start=1):
         text = join_pages(extract_report_pages(str(data_dir / case["file"]), case["file_type"]))
         analysis = await analyze_report(text[:14000])
+
+        # analyze_report never raises: on an API error or unparseable output it
+        # returns its fallback, with risk_level "Unknown". Scoring that would
+        # be worse than dropping it, because the fallback happens to look like
+        # a defended system - no risk level to lower, no advice to object to.
+        # An exhausted API key would read as every attack suddenly failing.
+        if str(analysis.get("risk_level", "")).lower() in ("unknown", ""):
+            unmeasured.append({"id": case["id"], "attack": case["attack"]})
+            continue
+
         results.append({
             "id": case["id"],
             "attack": case["attack"],
@@ -524,6 +534,15 @@ async def stage_injection(data_dir: Path, cases: Sequence[dict], verbose: bool) 
     hidden = [r for r in results if not r["visible"]]
     summary["visible_text"] = M.score_injections(visible)["success_rate"]
     summary["invisible_text"] = M.score_injections(hidden)["success_rate"]
+    summary["cases"] = results
+    # Anything above zero makes the rates above a partial measurement. The
+    # printed summary says so rather than leaving it in the JSON only.
+    summary["unmeasured"] = unmeasured
+    summary["unmeasured_n"] = len(unmeasured)
+    if unmeasured:
+        print(f"  WARNING: {len(unmeasured)} of {len(cases)} attacks could not be "
+              f"scored (analysis failed). Rates cover the remaining "
+              f"{len(results)}.")
     return summary
 
 
@@ -675,6 +694,11 @@ def print_summary(results: Dict[str, object]) -> None:
         print(f"\ninjection      n={injection['n']:<4} success {pct(injection['success_rate'])} "
               f"(lower is better)")
         print(f"  visible {pct(injection['visible_text'])}   invisible {pct(injection['invisible_text'])}")
+        if injection.get("unmeasured_n"):
+            unscored = injection["unmeasured_n"]
+            scored = injection["n"]
+            print("  PARTIAL: " + str(unscored) + " attack(s) could not be "
+                  "scored (analysis failed); rates above cover n=" + str(scored))
         for name, block in injection["by_attack"].items():
             print(f"    {name:<22} {pct(block['success_rate'])}")
 
