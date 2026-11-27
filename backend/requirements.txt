@@ -17,6 +17,25 @@ pdfplumber
 pytesseract
 Pillow
 openai
-sentence-transformers
-faiss-cpu
+
+# Pinned, unlike the rest of this file, because these three decide the
+# retrieval numbers the CI gate blocks on.
+#
+# They were unpinned, and CI quietly installed sentence-transformers 6.3.0
+# against the 5.1.1 every measurement in eval/ was taken on. Recall@5 came
+# out 32.5% on CI against 30.0% locally - the same corpus and the same 80
+# questions. The gate passed only because its floor is 27.0%.
+#
+# Embeddings are deterministic *within* an environment, which is what makes a
+# retrieval gate possible at all. Across library versions they are not, so
+# leaving these open means a release can move the gate's numbers with no code
+# change - turning it red, or hiding a real regression behind an unrelated
+# improvement. That is the flakiness the LLM metrics were excluded to avoid.
+#
+# Upgrading is then a deliberate change: bump these, re-run the eval, and
+# move the floors in eval/gate.toml in the same commit. eval/EXPERIMENTS.md
+# records what 6.3.0 appears to be worth.
+sentence-transformers==5.1.1
+torch==2.8.0
+faiss-cpu==1.13.2
 apscheduler
