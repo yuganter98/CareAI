@@ -245,6 +245,53 @@ which is defence in depth, not a measured result.
 
 ---
 
+## An unpinned dependency, and a free experiment
+
+The first CI run of the retrieval gate reported **Recall@5 32.5%** where this
+machine reports **30.0%** - the same generated corpus, the same 80 questions,
+the same code. The gate passed, but only because its floor is 27.0%.
+
+The cause was that nothing was pinned. CI installed
+**sentence-transformers 6.3.0** against the **5.1.1** every number in this
+file was measured on, plus torch 2.15.0 against 2.8.0 and faiss-cpu 1.16.0
+against 1.13.2.
+
+This matters more than the 2.5pp. The gate's whole justification is that
+retrieval is deterministic while the LLM metrics are not - and embeddings are
+deterministic *within* an environment, but the gate compares across them. An
+unpinned embedding stack means a library release can move the blocking number
+with no code change: a red build nobody caused, or worse, a real regression
+hidden behind an unrelated improvement. `sentence-transformers`, `torch` and
+`faiss-cpu` are now pinned in `backend/requirements.txt`, so upgrading is a
+deliberate change: bump them, re-run the eval, move the floors in
+`gate.toml` in the same commit.
+
+### What it suggests, and why it is not banked
+
+Taken at face value, sentence-transformers 5.1.1 -> 6.3.0 is worth +2.5pp
+Recall@5 for a version bump. That is larger than anything the retrieval
+experiments achieved deliberately, and `all-MiniLM-L6-v2` is the same model
+in both, so the difference is in the library - pooling, normalisation or
+tokenisation.
+
+It is **not** recorded as a result:
+
+- One run against one run, with no paired significance test. 2pp on 80
+  questions is two questions.
+- Three libraries moved at once, so the +2.5pp is not attributable to
+  sentence-transformers alone.
+- The comparison is cross-machine as well as cross-version (Windows/Python
+  3.13 here, Linux/Python 3.11 there), and those are not separable from this
+  evidence.
+
+The honest next step is the cheap one: pin as now, then bump only
+sentence-transformers in its own branch and run `make eval` and
+`eval/compare.py` against the current baseline. If +2.5pp survives a paired
+bootstrap it is the best-value retrieval change available, and it costs one
+line.
+
+---
+
 ## Still to measure
 
 - **Chunking.** `CHUNK_SIZE = 500` / `OVERLAP = 50` has never been compared

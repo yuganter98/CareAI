@@ -19,6 +19,14 @@
 # the same model give the same vectors and the same ranking every time. The
 # whole PR gate therefore needs no API key and costs nothing to run.
 #
+# "The same model" is load-bearing, and it was not true at first. The
+# embedding stack was unpinned, CI installed sentence-transformers 6.3.0
+# against the 5.1.1 these numbers were measured on, and Recall@5 came out
+# 32.5% there against 30.0% here - same corpus, same 80 questions. The gate
+# passed only because its floor is 27.0%. sentence-transformers, torch and
+# faiss-cpu are now pinned in backend/requirements.txt; upgrading them means
+# re-running the eval and moving these floors in the same commit.
+#
 # `floor` is an absolute value, not a delta against the last run, so a drift
 # of several small "within margin" steps cannot walk a metric down unnoticed.
 # Change a floor only in a commit whose message says what changed and why the

@@ -32,9 +32,14 @@ jobs:
           cache-dependency-path: backend/requirements*.txt
       # Tests mock the LLM, DB and embedding model, so the heavy
       # sentence-transformers/torch stack is skipped to keep CI fast.
+      #
+      # torch is stripped by name now that it is pinned explicitly in
+      # requirements.txt. It used to arrive only as a transitive dependency of
+      # sentence-transformers, so removing that one line was enough; a direct
+      # pin would otherwise pull ~800MB into the fast test job.
       - name: Install dependencies
         run: |
-          grep -v '^sentence-transformers' requirements.txt > requirements-ci.txt
+          grep -vE '^(sentence-transformers|torch)' requirements.txt > requirements-ci.txt
           pip install -r requirements-ci.txt pytest pytest-asyncio httpx
       - name: Run pytest
         run: python -m pytest -q
