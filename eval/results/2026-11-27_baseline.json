@@ -1,0 +1,116 @@
+{
+  "run": {
+    "started_at": "2026-11-27T05:24:31+00:00",
+    "label": "baseline",
+    "git_commit": "ab76336",
+    "stages": [
+      "index",
+      "retrieval"
+    ],
+    "llm_model": "gpt-4o-mini",
+    "llm_base_url": null,
+    "report_limit": 150
+  },
+  "testsets": {
+    "extraction_v1": 815,
+    "risk_v1": 815,
+    "golden_v1": 100
+  },
+  "index": {
+    "reports_indexed": 803,
+    "reports_failed": 12,
+    "vectors": 1606,
+    "chunks": 1606,
+    "seconds": 87.3
+  },
+  "retrieval": {
+    "copilot_path": {
+      "overall": {
+        "n": 80,
+        "recall_at_5": 0.0125,
+        "mrr_at_10": 0.004583333333333333,
+        "ndcg_at_10": 0.007565753050658823
+      },
+      "tuning_split": {
+        "n": 64,
+        "recall_at_5": 0.0,
+        "mrr_at_10": 0.0,
+        "ndcg_at_10": 0.0
+      },
+      "held_out": {
+        "n": 16,
+        "recall_at_5": 0.0625,
+        "mrr_at_10": 0.02291666666666667,
+        "ndcg_at_10": 0.037828765253294115
+      },
+      "by_type": {
+        "cross_report": {
+          "n": 40,
+          "recall_at_5": 0.0,
+          "mrr_at_10": 0.0,
+          "ndcg_at_10": 0.0
+        },
+        "multi_step": {
+          "n": 20,
+          "recall_at_5": 0.0,
+          "mrr_at_10": 0.008333333333333333,
+          "ndcg_at_10": 0.01092037184090821
+        },
+        "single_report": {
+          "n": 20,
+          "recall_at_5": 0.05,
+          "mrr_at_10": 0.01,
+          "ndcg_at_10": 0.01934264036172708
+        }
+      },
+      "latency_s": {
+        "p50": 0.01600000000325963,
+        "p95": 0.03200000000651926
+      }
+    },
+    "patient_filtered": {
+      "overall": {
+        "n": 80,
+        "recall_at_5": 0.3,
+        "mrr_at_10": 0.2299404761904762,
+        "ndcg_at_10": 0.28496020271539174
+      },
+      "tuning_split": {
+        "n": 64,
+        "recall_at_5": 0.3046875,
+        "mrr_at_10": 0.23217385912698413,
+        "ndcg_at_10": 0.2855434220169714
+      },
+      "held_out": {
+        "n": 16,
+        "recall_at_5": 0.28125,
+        "mrr_at_10": 0.22100694444444444,
+        "ndcg_at_10": 0.28262732550907305
+      },
+      "by_type": {
+        "cross_report": {
+          "n": 40,
+          "recall_at_5": 0.2,
+          "mrr_at_10": 0.20126984126984127,
+          "ndcg_at_10": 0.2640995656017923
+        },
+        "multi_step": {
+          "n": 20,
+          "recall_at_5": 0.3,
+          "mrr_at_10": 0.29625,
+          "ndcg_at_10": 0.26772035425669805
+        },
+        "single_report": {
+          "n": 20,
+          "recall_at_5": 0.5,
+          "mrr_at_10": 0.2209722222222222,
+          "ndcg_at_10": 0.3439213254012843
+        }
+      },
+      "latency_s": {
+        "p50": 0.01600000000325963,
+        "p95": 0.031000000017229468
+      }
+    }
+  }
+}
