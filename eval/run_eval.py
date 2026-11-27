@@ -312,7 +312,7 @@ async def check_llm() -> dict:
     of that is that a wrong key or an unserved model id looks like every row
     failing. This turns it into one failed request and a clear message.
     """
-    from app.agents.llm_client import llm
+    from app.agents.llm_client import complete, llm
     from app.core.config import settings
 
     # AsyncOpenAI happily constructs with a placeholder key, so llm is almost
@@ -323,14 +323,15 @@ async def check_llm() -> dict:
 
     started = time.monotonic()
     try:
-        # Deliberately no max_tokens, matching the agents, which set none.
-        # A provider that reserves budget up front estimates an uncapped
-        # request at the model's full output limit, so a key with too little
-        # credit refuses the real calls. An earlier version of this capped
-        # itself at 8 tokens, passed on a near-empty key, and let a whole run
-        # proceed to fail row by row - which reads as a defended system, not
-        # a billing problem. The preflight has to cost what the stages cost.
-        reply = await llm.chat.completions.create(
+        # Goes through the agents' own wrapper, so the preflight is bounded
+        # exactly as the real calls are. The point is not that this request is
+        # cheap, it is that it is priced the same way: this check has been
+        # wrong in both directions. It first capped itself at 8 tokens and so
+        # passed while every report-sized call was refused; then it sent no
+        # max_tokens at all and failed while the bounded stages would have
+        # succeeded. A preflight that does not share the production call path
+        # tests something other than production.
+        reply = await complete(
             model=settings.LLM_MODEL,
             messages=[{"role": "user", "content": "Reply with the single word: ready"}],
             temperature=0,

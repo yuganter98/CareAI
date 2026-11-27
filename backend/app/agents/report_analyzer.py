@@ -11,7 +11,7 @@ import logging
 from typing import Dict, Any
 from pydantic import ValidationError
 
-from app.agents.llm_client import llm, parse_json_block
+from app.agents.llm_client import complete, llm, parse_json_block
 from app.agents.rag_pipeline import search_similar_chunks
 from app.agents.safety import (find_injection_markers, scrub_analysis,
                                scrub_text)
@@ -80,7 +80,7 @@ async def analyze_report(report_text: str) -> Dict[str, Any]:
         logger.warning("Instruction-like text in uploaded report: %s", markers)
 
     try:
-        response = await llm.chat.completions.create(
+        response = await complete(
             model=settings.LLM_MODEL,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
@@ -138,7 +138,7 @@ async def query_report(report_id: str, question: str) -> str:
     )
 
     try:
-        response = await llm.chat.completions.create(
+        response = await complete(
             model=settings.LLM_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},

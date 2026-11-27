@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from app.agents.llm_client import llm, parse_json_block
+from app.agents.llm_client import complete, llm, parse_json_block
 from app.schemas.ai import PersonalizedInsightOutput, MetricInsight
 from app.db.models import HealthMetric, User
 from app.core.config import settings
@@ -213,7 +213,7 @@ async def generate_personalized_insights(
 
     if llm:
         try:
-            response = await llm.chat.completions.create(
+            response = await complete(
                 model=settings.LLM_MODEL,
                 messages=[{"role": "system", "content": system_prompt}],
                 temperature=0.3,

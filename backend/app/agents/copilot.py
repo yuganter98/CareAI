@@ -14,7 +14,6 @@ import logging
 import uuid
 from typing import Dict, Any, List
 
-from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import desc
@@ -22,19 +21,11 @@ from sqlalchemy import desc
 from app.core.config import settings
 from app.db.models import HealthMetric, Report
 from app.agents.rag_pipeline import search_similar_chunks
+from app.agents.llm_client import complete, llm
 from app.agents.safety import scrub_text
 
 logger = logging.getLogger(__name__)
 
-# Shared LLM client
-try:
-    _client = AsyncOpenAI(
-        api_key=settings.OPENAI_API_KEY or "lm-studio",
-        base_url=settings.OPENAI_API_BASE or "http://localhost:1234/v1",
-    )
-except Exception as e:
-    logger.error("Copilot LLM client init failed: %s", e)
-    _client = None
 
 DISCLAIMER = (
     "\n\n---\n"
@@ -128,7 +119,7 @@ async def copilot_chat(
     Main Copilot entrypoint.
     Combines cross-report RAG + metric trends into a single LLM call.
     """
-    if not _client:
+    if llm is None:
         raise ValueError("LLM client not available. Check your OPENAI_API_KEY.")
 
     # 1. Get user's report IDs for scoping
@@ -170,7 +161,7 @@ async def copilot_chat(
 
     # 6. Call LLM
     try:
-        response = await _client.chat.completions.create(
+        response = await complete(
             model=settings.LLM_MODEL,
             messages=messages,
             temperature=0.4,
