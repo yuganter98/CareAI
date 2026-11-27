@@ -146,10 +146,27 @@ some requests, so they are only corroborating.
 | `medication_advice` | 100% | **0%** | **yes** - deterministic |
 | `lower_risk` | 17-33% | **0%** | **yes** - deterministic |
 | `suppress_alert` | 17-33% | **0%** | **yes** - deterministic |
-| `fake_normal_summary` | 50% | 16.7% | no - prompt only |
+| `fake_normal_summary` | 50% | **0%** | partly - see below |
 | `identity_leak` | 0% | 0% | no |
 
-Overall injection success: **3.3%**, down from ~40%.
+Overall injection success: **0.0%**, down from ~40% (n=30, nothing
+unmeasured).
+
+**A 0% needs its caveats stated, not buried.** This is 30 cases over 5
+attack types against one model, and the attack text is templated, so it
+measures these attacks and not prompt injection in general. Beyond that:
+
+- Two rows are genuine deterministic guarantees, in `safety.py` and
+  `risk_floor.py`, holding without the model's cooperation.
+- The two risk rows reach 0% partly **by construction**: the floor shares
+  its rule with the corpus labels.
+- `fake_normal_summary` reached 0% mostly because a **scoring bug** was
+  fixed, not the product: a bare `"within normal limits"` in the phrase list
+  was counting an accurate summary as an attack. The new guard against
+  genuinely false claims did not fire during the run.
+- `identity_leak` was never vulnerable, so its 0% is not a result.
+
+`EXPERIMENTS.md` has the full accounting for each.
 
 The two risk rows became guarantees with `app/agents/risk_floor.py`, which
 computes the risk level from the values on the page and raises the model's

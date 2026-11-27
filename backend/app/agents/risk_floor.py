@@ -186,6 +186,114 @@ def floor_for(text: str) -> Tuple[str, Dict[str, Any]]:
     return level, evidence
 
 
+# ── Blanket claims that nothing is wrong ────────────────────────────────
+
+# Only *unqualified* claims. "Your hemoglobin is within normal limits" is a
+# statement about one metric and is usually the correct thing to say; so is
+# "all other parameters are within normal limits" on a report with one bad
+# value. Removing either would damage a true summary to satisfy a guard,
+# which is the failure this project already pinned a test against for
+# medication advice. What is caught here is the claim that covers the whole
+# report while the parser can see a value that contradicts it.
+_BLANKET_NORMAL = re.compile(
+    r"""(?:
+        \b(?:all|every|everything|each)\b[^.!?\n]{0,40}?
+            \b(?:normal|within\s+(?:the\s+)?normal\s+(?:limits|range)|unremarkable)\b
+      | \b(?:entirely|completely|wholly|fully)\s+normal\b
+      | \bno\s+(?:follow[\s-]?up|further\s+action|action)\s+(?:is\s+)?(?:required|needed)\b
+      | \bno\s+abnormalit(?:y|ies)\b
+      | \bnothing\s+(?:is\s+)?abnormal\b
+      | \bnothing\s+to\s+(?:report|worry)\b
+    )""",
+    re.IGNORECASE | re.VERBOSE)
+
+# Words that scope the claim to part of the report, in either direction.
+_SCOPED = re.compile(
+    r"\b(?:other|others|remaining|rest|else|apart\s+from|aside\s+from|"
+    r"except|excepting|besides|additional|aside)\b", re.IGNORECASE)
+
+_NEGATED_CLAIM = re.compile(
+    r"\b(?:not|never|n't|cannot|can't|isn't|aren't|rather\s+than|instead\s+of)\b",
+    re.IGNORECASE)
+
+
+def is_false_normality_claim(sentence: str) -> bool:
+    """True when `sentence` claims the whole report is normal, unqualified.
+
+    The caller is responsible for knowing that it is false: this only decides
+    whether the claim is broad enough to be contradicted.
+    """
+    if not sentence:
+        return False
+    match = _BLANKET_NORMAL.search(sentence)
+    if not match:
+        return False
+    if _SCOPED.search(sentence):
+        return False            # a claim about part of the report
+    if _NEGATED_CLAIM.search(sentence[:match.start()]):
+        return False            # "not all values are normal" is accurate
+    return True
+
+
+def scrub_false_normality(
+    analysis: Dict[str, Any], buckets: Dict[str, str]
+) -> Dict[str, Any]:
+    """Drop blanket "everything is fine" claims that the values contradict.
+
+    `buckets` is the parsed evidence from `floor_for`. Nothing is removed
+    unless a value was actually read and actually abnormal - the guard has to
+    know the claim is false, not merely suspect it, or it starts deleting
+    correct summaries of genuinely normal reports.
+    """
+    abnormal = {m: b for m, b in buckets.items()
+                if BUCKET_SEVERITY[b] >= BUCKET_SEVERITY["elevated"]}
+    if not abnormal:
+        return analysis
+
+    out = dict(analysis)
+    removed: List[str] = []
+
+    summary = out.get("summary")
+    if isinstance(summary, str) and summary:
+        kept = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", summary)
+                if s and s.strip()]
+        survivors = [s for s in kept if not is_false_normality_claim(s)]
+        removed = [s for s in kept if is_false_normality_claim(s)]
+        if removed:
+            # Never hand back an empty summary: on a report with a critical
+            # value, saying nothing reads as "nothing is wrong", which is the
+            # claim that was just removed.
+            out["summary"] = " ".join(survivors).strip() or _describe(abnormal)
+
+    actions = out.get("suggested_actions")
+    if isinstance(actions, list):
+        safe = [a for a in actions
+                if not (isinstance(a, str) and is_false_normality_claim(a))]
+        removed += [a for a in actions
+                    if isinstance(a, str) and is_false_normality_claim(a)]
+        out["suggested_actions"] = safe or [
+            "Discuss these results with your doctor."]
+
+    if removed:
+        logger.warning(
+            "Removed a blanket normality claim contradicted by %s: %s",
+            abnormal, removed)
+        safety = dict(out.get("safety") or {})
+        safety["false_normality_removed"] = {
+            "claims": list(dict.fromkeys(removed)),
+            "contradicted_by": abnormal,
+        }
+        out["safety"] = safety
+    return out
+
+
+def _describe(abnormal: Dict[str, str]) -> str:
+    """A factual replacement summary built from the parsed values alone."""
+    names = ", ".join(sorted(m.replace("_", " ") for m in abnormal))
+    return (f"This report has values outside the normal range ({names}). "
+            f"Discuss these results with your doctor.")
+
+
 def apply_floor(analysis: Dict[str, Any], report_text: str) -> Dict[str, Any]:
     """Raise `analysis["risk_level"]` to the floor the values imply.
 
@@ -193,6 +301,13 @@ def apply_floor(analysis: Dict[str, Any], report_text: str) -> Dict[str, Any]:
     risk level that silently disagrees with the model's own summary is
     confusing to debug and worse to trust.
     """
+    floor, evidence = floor_for(report_text)
+    return _raise_to_floor(analysis, floor, evidence)
+
+
+def _raise_to_floor(
+    analysis: Dict[str, Any], floor: str, evidence: Dict[str, Any]
+) -> Dict[str, Any]:
     out = dict(analysis)
     model_level = str(out.get("risk_level", "")).strip().title()
 
@@ -202,7 +317,6 @@ def apply_floor(analysis: Dict[str, Any], report_text: str) -> Dict[str, Any]:
     if model_level not in RISK_SEVERITY:
         return out
 
-    floor, evidence = floor_for(report_text)
     if RISK_SEVERITY[floor] <= RISK_SEVERITY[model_level]:
         return out
 
@@ -218,3 +332,18 @@ def apply_floor(analysis: Dict[str, Any], report_text: str) -> Dict[str, Any]:
     }
     out["safety"] = safety
     return out
+
+
+def enforce_measured_truth(
+    analysis: Dict[str, Any], report_text: str
+) -> Dict[str, Any]:
+    """Both value-based guards, sharing one parse of the report.
+
+    The risk level is raised to what the values justify, and a blanket claim
+    that nothing is wrong is removed when the values contradict it. These are
+    the two halves of the same idea: the model's *words* and its *rating* can
+    each be talked out of a warning, and only the numbers settle either.
+    """
+    floor, evidence = floor_for(report_text)
+    out = _raise_to_floor(analysis, floor, evidence)
+    return scrub_false_normality(out, evidence["buckets"])

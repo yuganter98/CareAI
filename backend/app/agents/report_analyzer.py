@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 from app.agents.llm_client import complete, llm, parse_json_block
 from app.agents.rag_pipeline import search_similar_chunks
-from app.agents.risk_floor import apply_floor
+from app.agents.risk_floor import enforce_measured_truth
 from app.agents.safety import (find_injection_markers, scrub_analysis,
                                scrub_text)
 from app.schemas.ai import ReportAnalysisOutput
@@ -110,7 +110,7 @@ async def analyze_report(report_text: str) -> Dict[str, Any]:
         # neither can be a prompt rule, because the report competes for the
         # same prompt. Floor second, so it sees the scrubbed dict and merges
         # into the same `safety` key.
-        return apply_floor(analysis, safe_text)
+        return enforce_measured_truth(analysis, safe_text)
 
     except (json.JSONDecodeError, ValidationError) as e:
         logger.warning("Report analysis output invalid (%s) — returning fallback.", e)
