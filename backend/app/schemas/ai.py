@@ -13,6 +13,8 @@ from __future__ import annotations
 from typing import List, Literal, Optional
 from pydantic import BaseModel, field_validator
 
+from app.core.disclaimer import DISCLAIMER_TEXT
+
 
 # ─────────────────────────────────────────────────────────
 #  1. Report Analysis  (ReportAnalyzerAgent)
@@ -23,7 +25,7 @@ class ReportAnalysisOutput(BaseModel):
     abnormalities: List[str] = []
     risk_level: Literal["Low", "Medium", "High", "Unknown"] = "Unknown"
     suggested_actions: List[str] = []
-    disclaimer: str = "AI-generated analysis. Not medical advice."
+    disclaimer: str = DISCLAIMER_TEXT
 
     @field_validator("risk_level", mode="before")
     @classmethod
@@ -112,7 +114,7 @@ class PersonalizedInsightOutput(BaseModel):
     insights: List[str] = []
     metrics: List[MetricInsight] = []
     summary: str = ""
-    disclaimer: str = "AI-generated health insight. Not medical advice."
+    disclaimer: str = DISCLAIMER_TEXT
 
     @field_validator("insights", mode="before")
     @classmethod
@@ -131,4 +133,4 @@ class ExplainabilityOutput(BaseModel):
     explanation: str = "Explanation unavailable."
     supporting_data: List[str] = []
     confidence: Literal["high", "medium", "low"] = "medium"
-    disclaimer: str = "AI-generated explanation. Not medical advice."
+    disclaimer: str = DISCLAIMER_TEXT

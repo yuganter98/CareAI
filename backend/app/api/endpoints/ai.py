@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Optional
 import uuid
 
 from app.api.deps import get_current_user, get_owned_report
+from app.core.disclaimer import attach_disclaimer, with_disclaimer
 from app.db.session import get_db
 from app.db.models import User, Report
 from app.agents.extractor import extract_report_pages, join_pages
@@ -56,7 +57,7 @@ async def api_analyze_report(
     # 5. Generate primary AI Medical Summary 
     try:
         analysis_result = await analyze_report(safe_text)
-        return analysis_result
+        return attach_disclaimer(analysis_result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OpenAI Analysis failed: {e}")
 
@@ -71,7 +72,7 @@ async def api_query_report(
 
     try:
         answer = await query_report(report_id=payload.report_id, question=payload.question)
-        return {"answer": answer}
+        return {"answer": with_disclaimer(answer)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI RAG Query failed: {e}")
 
@@ -86,7 +87,8 @@ async def api_health_insights(
     """
     from app.analytics.personalized_insights import generate_personalized_insights
     try:
-        return await generate_personalized_insights(db, str(current_user.id))
+        return attach_disclaimer(
+            await generate_personalized_insights(db, str(current_user.id)))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Personalized insights failed: {e}")
 
@@ -148,7 +150,7 @@ async def api_process_report(
         if "db" in final_state:
             del final_state["db"]
             
-        return final_state
+        return attach_disclaimer(final_state)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Agent Graph Orchestrator kernel failed: {e}")
 
@@ -173,7 +175,8 @@ async def api_agent_query(
     
     try:
         final_state = await orchestrator.process_event("USER_QUERY", initial_state)
-        return {"answer": final_state.get("answer", "No answer found by the graph.")}
+        return {"answer": with_disclaimer(
+            final_state.get("answer", "No answer found by the graph."))}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query workflow graph failed: {e}")
 
@@ -202,12 +205,12 @@ async def api_explain(
     await get_owned_report(db, payload.report_id, current_user)
 
     try:
-        return await explain(
+        return attach_disclaimer(await explain(
             db=db,
             user_id=str(current_user.id),
             report_id=payload.report_id,
             question=payload.question,
-        )
+        ))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Explainability engine failed: {e}")
 
@@ -247,6 +250,6 @@ async def api_copilot_chat(
             question=payload.question,
             conversation_history=history,
         )
-        return {"answer": answer}
+        return {"answer": with_disclaimer(answer)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Health Copilot failed: {e}")
