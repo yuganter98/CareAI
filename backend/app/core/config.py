@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     # Model name sent to the OpenAI-compatible endpoint (LM Studio ignores it,
     # OpenAI / other providers need a real model id).
     LLM_MODEL: str = "gpt-4o-mini"
+    # Ceiling on reply length for every agent call (see agents/llm_client.py).
+    # The agents return a short JSON object or a few paragraphs, so 1500 is
+    # generous; it exists to stop a provider pricing each request at the
+    # model's full 16k output window, which makes a key with modest credit
+    # refuse every call. Raise it if the truncation warning ever fires.
+    LLM_MAX_TOKENS: int = 1500
 
     model_config = SettingsConfigDict(
         env_file=".env",
