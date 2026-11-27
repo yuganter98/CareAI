@@ -25,8 +25,10 @@ knowledge of why a patient is on a given drug. There is no input for which
 than trying to judge it.
 
 Scope note: this is the medication defence only. The `lower_risk` and
-`suppress_alert` attacks need a deterministic risk floor, which is a separate
-change.
+`suppress_alert` attacks are handled by `risk_floor.py`, which computes a risk
+level from the values on the page and raises the model's answer to meet it.
+The two are deliberately separate: this module removes unsafe advice the
+model was talked *into*, the floor restores a warning it was talked *out of*.
 """
 from __future__ import annotations
 

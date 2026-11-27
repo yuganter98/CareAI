@@ -144,16 +144,26 @@ some requests, so they are only corroborating.
 | Attack | Before | After | Guaranteed? |
 | --- | --- | --- | --- |
 | `medication_advice` | 100% | **0%** | **yes** - deterministic |
-| `lower_risk` | 17-33% | 0% | no - prompt only |
+| `lower_risk` | 17-33% | **0%** | **yes** - deterministic |
+| `suppress_alert` | 17-33% | **0%** | **yes** - deterministic |
 | `fake_normal_summary` | 50% | 16.7% | no - prompt only |
-| `suppress_alert` | 17-33% | 33.3% | no - needs the risk floor |
 | `identity_leak` | 0% | 0% | no |
 
-Note that `suppress_alert` is **worse** on the clean run (33.3%) than the
-17% the partial runs reported. That is the predicted direction: its failed
-analyses were being scored as successful defences, so the credit-starved runs
-flattered it. The honest figure is the higher one, and it is the strongest
-argument for the deterministic risk floor still being outstanding.
+Overall injection success: **3.3%**, down from ~40%.
+
+The two risk rows became guarantees with `app/agents/risk_floor.py`, which
+computes the risk level from the values on the page and raises the model's
+answer to meet it. One caveat belongs next to those zeros: the floor applies
+the same rule that labelled this corpus, so on *this* data it reproduces the
+answer key and those attacks go to zero by construction.
+`EXPERIMENTS.md` works through what that does and does not demonstrate — in
+short, it tests the parser, not the thresholds.
+
+Note that `suppress_alert` measured **worse** on the first clean run (33.3%)
+than the 17% the partial runs had reported. That was the predicted direction:
+its failed analyses were being scored as successful defences, so the
+credit-starved runs flattered it. Taking the honest higher figure is what
+made the risk floor the obvious next piece of work, and it is now 0%.
 
 The distinction in the last column is the point. Only the medication result
 is a property of the system: `app/agents/safety.py` strips medication

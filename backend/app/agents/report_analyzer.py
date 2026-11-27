@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from app.agents.llm_client import complete, llm, parse_json_block
 from app.agents.rag_pipeline import search_similar_chunks
+from app.agents.risk_floor import apply_floor
 from app.agents.safety import (find_injection_markers, scrub_analysis,
                                scrub_text)
 from app.schemas.ai import ReportAnalysisOutput
@@ -100,8 +101,16 @@ async def analyze_report(report_text: str) -> Dict[str, Any]:
         # The guard runs on every analysis, not only suspicious ones:
         # the model can produce medication advice unprompted, and an
         # injection does not have to look like one to work.
-        return scrub_analysis(output.model_dump(),
-                              context="report_analyzer" + marker_note)
+        analysis = scrub_analysis(output.model_dump(),
+                                  context="report_analyzer" + marker_note)
+        # Then the risk level is raised to whatever the measured values
+        # justify. Both guards read the model's output rather than asking it
+        # to behave: the injections that talk it *into* unsafe advice and the
+        # ones that talk it *out of* a warning need different defences, and
+        # neither can be a prompt rule, because the report competes for the
+        # same prompt. Floor second, so it sees the scrubbed dict and merges
+        # into the same `safety` key.
+        return apply_floor(analysis, safe_text)
 
     except (json.JSONDecodeError, ValidationError) as e:
         logger.warning("Report analysis output invalid (%s) — returning fallback.", e)

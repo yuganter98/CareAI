@@ -24,57 +24,16 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# ── Clinical reference ranges ────────────────────────────────────────────────
-# assessment buckets: normal | borderline | elevated | critical
-REFERENCE_RANGES: Dict[str, Dict] = {
-    "glucose": {
-        "normal":     (70,  100),
-        "borderline": (100, 126),
-        "elevated":   (126, 200),
-        "critical":   (200, float("inf")),
-        "unit": "mg/dL",
-    },
-    "hemoglobin": {
-        "critical":   (0,   7),
-        "elevated":   (7,   11),    # low side reused as "borderline low"
-        "borderline": (11,  12),
-        "normal":     (12,  17.5),
-        "unit": "g/dL",
-    },
-    "creatinine": {
-        "normal":     (0.7, 1.3),
-        "borderline": (1.3, 1.8),
-        "elevated":   (1.8, 3.0),
-        "critical":   (3.0, float("inf")),
-        "unit": "mg/dL",
-    },
-    "blood_pressure_systolic": {
-        "normal":     (90,  120),
-        "borderline": (120, 130),
-        "elevated":   (130, 180),
-        "critical":   (180, float("inf")),
-        "unit": "mmHg",
-    },
-    "blood_pressure_diastolic": {
-        "normal":     (60,  80),
-        "borderline": (80,  90),
-        "elevated":   (90,  120),
-        "critical":   (120, float("inf")),
-        "unit": "mmHg",
-    },
-}
+# Clinical reference ranges now live in app/core/reference_ranges.py, so
+# that the risk floor in app/agents/risk_floor.py and this feature cannot
+# drift apart. eval/ranges.py keeps a copy for the corpus generator and
+# tests/test_eval_groundwork.py fails if that copy drifts.
+from app.core.reference_ranges import REFERENCE_RANGES, assess  # noqa: E402
 
 
 def _assess(metric_name: str, value: float) -> str:
-    """Return the assessment bucket for a given metric value."""
-    ranges = REFERENCE_RANGES.get(metric_name.lower())
-    if not ranges:
-        return "normal"   # unknown metric — assume normal
-    for bucket in ("critical", "elevated", "borderline", "normal"):
-        lo, hi = ranges.get(bucket, (None, None))
-        if lo is not None and lo <= value < hi:
-            return bucket
-    return "normal"
+    """Kept as the module's own name for the shared implementation."""
+    return assess(metric_name, value)
 
 
 def _compute_trend(readings: List[float]) -> str:

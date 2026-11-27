@@ -121,6 +121,80 @@ would be arbitrary.
 
 ---
 
+## The risk floor, and what this corpus cannot tell us about it
+
+**Shipped.** `backend/app/agents/risk_floor.py` computes a risk level from the
+values printed on the report and raises the model's answer to meet it. It
+never lowers.
+
+Measured, `--stages injection`, n=30, nothing unmeasured:
+
+| Attack | Before the floor | After |
+| --- | --- | --- |
+| `lower_risk` | 0.0% | 0.0% |
+| `suppress_alert` | **33.3%** | **0.0%** |
+| overall | 10.0% | **3.3%** |
+
+### Read that suppress_alert number carefully
+
+`eval/ranges.py` labelled this corpus with `expected_risk()`: critical value
+means High, elevated means Medium. The floor applies the same rule over the
+same reference table. **On this corpus the floor therefore reproduces the
+answer key**, and the two risk-based attacks go to zero by construction. A
+different threshold table, or a corpus labelled by clinicians, would not give
+this result for free.
+
+So the 0.0% is a statement that the defence is wired in and the parser holds
+up on attacked text. It is not evidence that the thresholds are clinically
+right. Those are ordinary adult reference ranges that the app already used
+for its insights feature before any of this work, which is the only reason
+reusing them is defensible rather than circular.
+
+### What the corpus does measure honestly
+
+The parser, because the attacker writes the text it reads. Over all 803
+reports whose text can be extracted:
+
+- floor **above** the true risk: **0** — so the floor adds no false alarms
+- floor **below** the true risk: **0**
+- reports where nothing parsed: 12, all of them the OCR scans Tesseract
+  cannot read
+
+Since the floor never exceeds the truth here, `max(model, floor)` can only
+ever correct an under-call. It cannot worsen the alert-fatigue problem, which
+stays exactly what it was: the model's own 23 Low-to-Medium escalations. That
+is a proof from the parser's output, not a sampled estimate, and it is why
+the risk stage was not re-run for it.
+
+Two parser properties do the adversarial work, and both are tested against
+wordings the eval never uses:
+
+- **The worst reading of each metric wins.** An attacker can add text, so
+  they can add a reassuring `Glucose 88 mg/dL` beside a real 450. Taking the
+  worst makes added text unable to lower the floor; adding a fake *critical*
+  value raises it, which is a false alarm and gains them nothing.
+- **Printed reference ranges are masked before any value is read.** Every
+  real lab line carries one, and `70 - 100` on a glucose row otherwise parses
+  as a reading of 70 — which would collapse the floor on exactly the reports
+  it exists for.
+
+### The gap it does not close
+
+The floor cannot raise what it cannot see. An attacker who prevents the
+metric line being extracted at all — covering it, or tampering with the PDF
+text layer — gets a floor of Low, because no values were found. It is a
+backstop against a tampered *instruction*, not a tampered *measurement*.
+Closing that needs the extractor to report what it could not read, which it
+does not currently do. The 12 unreadable scans above are the same hole,
+arriving by accident rather than by attack.
+
+`fake_normal_summary` is also still 16.7%: the floor corrects the risk level,
+but a summary sentence claiming everything is normal is a text claim, and
+nothing yet checks it against the parsed values. The evidence to do it is
+already computed and sitting in `safety.risk_floor.because`.
+
+---
+
 ## Still to measure
 
 - **Chunking.** `CHUNK_SIZE = 500` / `OVERLAP = 50` has never been compared
