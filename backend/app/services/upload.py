@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import uuid
@@ -40,13 +41,19 @@ def detect_file_type(filename: str | None) -> tuple[str, str]:
     return ext, ALLOWED_EXTENSIONS[ext]
 
 
-async def save_upload_file(upload_file: UploadFile) -> str:
+async def save_upload_file(upload_file: UploadFile) -> tuple[str, str]:
     """
-    Validate and persist an uploaded report.
+    Validate and persist an uploaded report. Returns (path, sha256).
+
     - extension must be in ALLOWED_EXTENSIONS
     - content must start with the matching file signature
     - size must not exceed MAX_UPLOAD_SIZE_MB
     The stored name is a random hex id, so the client filename never reaches the path.
+
+    The digest is taken over the bytes as they stream past, so detecting a
+    re-upload costs no extra read of the file. It covers only the bytes
+    actually written, which matters for the rejection paths: a file that blew
+    the size limit is deleted and never gets a hash at all.
     """
     ext, _ = detect_file_type(upload_file.filename)
     max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
@@ -55,6 +62,7 @@ async def save_upload_file(upload_file: UploadFile) -> str:
     file_path = os.path.join(settings.UPLOAD_DIR, f"{uuid.uuid4().hex}.{ext}")
 
     written = 0
+    digest = hashlib.sha256()
     try:
         with open(file_path, "wb") as buffer:
             first = True
@@ -75,6 +83,7 @@ async def save_upload_file(upload_file: UploadFile) -> str:
                         status_code=413,  # Payload Too Large
                         detail=f"File exceeds the {settings.MAX_UPLOAD_SIZE_MB}MB limit.",
                     )
+                digest.update(chunk)
                 buffer.write(chunk)
         if written == 0:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty.")
@@ -86,7 +95,7 @@ async def save_upload_file(upload_file: UploadFile) -> str:
         raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
 
     # In future setups with S3, this would return an S3 URI. Currently, returning local path.
-    return file_path
+    return file_path, digest.hexdigest()
 
 
 def remove_stored_file(file_path: str | None) -> None:

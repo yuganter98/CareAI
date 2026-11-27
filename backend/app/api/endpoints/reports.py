@@ -1,4 +1,7 @@
+import logging
+
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import Any, List, Optional
@@ -9,6 +12,8 @@ from app.db.session import get_db
 from app.db.models import User, Report
 from app.schemas.report import ReportResponse
 from app.services.upload import detect_file_type, remove_stored_file, save_upload_file
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -23,19 +28,54 @@ async def upload_report(
 ) -> Any:
     _, detected_type = detect_file_type(file.filename)
 
-    # Validate + save physical file to disk
-    file_path = await save_upload_file(file)
+    # Validate + save physical file to disk. The digest comes from the same
+    # streaming pass, so this costs no extra read.
+    file_path, content_hash = await save_upload_file(file)
+
+    # Re-uploading a file the user already has returns the existing report
+    # rather than paying for extraction, metric extraction and analysis again.
+    # The bytes just written are discarded; the stored copy is already there.
+    existing = await db.execute(
+        select(Report).where(
+            Report.user_id == current_user.id,
+            Report.content_sha256 == content_hash,
+        )
+    )
+    duplicate = existing.scalars().first()
+    if duplicate is not None:
+        remove_stored_file(file_path)
+        logger.info("Duplicate upload by user %s; returning report %s",
+                    current_user.id, duplicate.id)
+        return duplicate
 
     # Save record metadata to PostgreSQL database
     report = Report(
         user_id=current_user.id,
         file_url=file_path,
-        file_type=detected_type
+        file_type=detected_type,
+        content_sha256=content_hash,
     )
     db.add(report)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two uploads of the same file racing each other: the unique
+        # constraint is the real guard, since the SELECT above can run before
+        # the other request commits. Fall back to the row that won.
+        await db.rollback()
+        remove_stored_file(file_path)
+        existing = await db.execute(
+            select(Report).where(
+                Report.user_id == current_user.id,
+                Report.content_sha256 == content_hash,
+            )
+        )
+        duplicate = existing.scalars().first()
+        if duplicate is None:
+            raise
+        return duplicate
     await db.refresh(report)
-    
+
     return report
 
 @router.get("/my-reports", response_model=List[ReportResponse])

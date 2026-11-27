@@ -87,7 +87,9 @@ class TestReportUpload:
             with patch(
                 "app.api.endpoints.reports.save_upload_file",
                 new_callable=AsyncMock,
-                return_value="uploads/fake_report.pdf",
+                # (path, sha256): the digest comes from the same streaming
+                # pass that writes the file, for duplicate detection.
+                return_value=("uploads/fake_report.pdf", "a" * 64),
             ):
                 fake_pdf = io.BytesIO(b"%PDF-1.4 fake content")
                 response = await async_client.post(
