@@ -23,16 +23,21 @@ reports (1,606 chunks) and 80 answerable questions.
 
 | Retrieval path | Recall@5 | MRR@10 | nDCG@10 |
 | --- | --- | --- | --- |
-| `copilot_path` — what ships today | **1.2%** | 0.005 | 0.008 |
+| `copilot_path_before` — what shipped then | **1.2%** | 0.005 | 0.008 |
 | `patient_filtered` — one filter away | **30.0%** | 0.230 | 0.285 |
+
+> **Fixed in Week 2.** The Copilot now filters first and scores 30.0%. The
+> `copilot_path_before` row is kept in the harness so the regression stays
+> visible. See [EXPERIMENTS.md](EXPERIMENTS.md).
 
 **The shipped Copilot retrieval is close to broken at any real scale.**
 `_get_rag_context` searches the whole index for the top 8 chunks and *then*
 drops everything that is not the current user's. With 40 patients in the
 index, the user's own pages almost never survive that cut. Filtering to the
 patient first is 25x better on the same index, same embeddings, same
-questions. That is the Week 2 pgvector change, and its payoff is now measured
-rather than assumed.
+questions. Filtering first is the Week 2 fix; pgvector turns the over-fetch it needs
+into a WHERE clause. Every path tried, shipped or not, is in
+[EXPERIMENTS.md](EXPERIMENTS.md).
 
 Recall@5 of 30% even with the filter is still poor, and the by-type split says
 why:

@@ -85,18 +85,36 @@ async def _get_trend_context(db: AsyncSession, user_id: str) -> str:
 
 
 def _get_rag_context(question: str, user_report_ids: List[str]) -> str:
-    """Search FAISS across ALL of the user's reports."""
-    # Search without filter to get cross-report context
-    all_chunks = search_similar_chunks(query=question, top_k=8, filter_report_id=None)
+    """
+    Search across all of the user's reports, and only the user's reports.
 
-    # Post-filter: only keep chunks belonging to the user's reports
-    user_chunks = [c for c in all_chunks if c.get("report_id") in user_report_ids]
+    This used to take the global top 8 and then drop other users' chunks, so
+    the user's own pages were usually gone before the filter ran: Recall@5
+    measured 1.2% against 30.0% for filtering first. Passing the ids into the
+    search is that fix.
+
+    Deliberately dense-only. hybrid_search() exists and scores higher overall
+    on the current question set, but the gain is entirely in questions that
+    quote a metric name verbatim, and it significantly regresses the
+    multi-step ones. eval/EXPERIMENTS.md has the numbers and the reasoning.
+    """
+    if not user_report_ids:
+        return "No relevant medical report context found for this question."
+
+    user_chunks = search_similar_chunks(
+        query=question, top_k=5, filter_report_ids=user_report_ids)
 
     if not user_chunks:
         return "No relevant medical report context found for this question."
 
-    chunks_text = "\n\n---\n\n".join([c["chunk"] for c in user_chunks[:5]])
-    return f"RELEVANT MEDICAL REPORT EXCERPTS:\n{chunks_text}"
+    # Each excerpt carries the report and page it came from, so the model can
+    # be held to citing a real page rather than asserting one.
+    excerpts = [
+        "[report {0}, page {1}]\n{2}".format(
+            c["report_id"], c.get("page", "?"), c["chunk"])
+        for c in user_chunks
+    ]
+    return "RELEVANT MEDICAL REPORT EXCERPTS:\n" + "\n\n---\n\n".join(excerpts)
 
 
 async def copilot_chat(

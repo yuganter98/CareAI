@@ -193,11 +193,57 @@ def _retrieve_patient_filtered(question: str, patient_id: str, k: int) -> List[s
     return out
 
 
+def _patient_report_ids(patient_id: str) -> List[str]:
+    """Every report id belonging to one patient, read from the live index.
+
+    The corpus names reports '<patient>-R<nn>', so this is what the app gets
+    from its own ownership query, without needing a database here.
+    """
+    from app.agents.rag_pipeline import load_metadata
+
+    return sorted({str(m["report_id"]) for m in load_metadata()
+                   if str(m["report_id"]).startswith(patient_id)})
+
+
+def _retrieve_dense_filtered(question: str, patient_id: str, k: int) -> List[str]:
+    """Dense search with the ownership filter applied before the top_k cut:
+    what search_similar_chunks now does for every caller."""
+    from app.agents.rag_pipeline import search_similar_chunks
+
+    hits = search_similar_chunks(query=question, top_k=k,
+                                 filter_report_ids=_patient_report_ids(patient_id))
+    return [_page_key(h) for h in hits]
+
+
+def _retrieve_bm25(question: str, patient_id: str, k: int) -> List[str]:
+    """Lexical only. Scored on its own to show what the fusion is fusing."""
+    from app.agents.rag_pipeline import bm25_search
+
+    hits = bm25_search(query=question, top_k=k,
+                       filter_report_ids=_patient_report_ids(patient_id))
+    return [_page_key(h) for h in hits]
+
+
+def _retrieve_hybrid(question: str, patient_id: str, k: int) -> List[str]:
+    """Dense + BM25 fused with RRF: what the Copilot ships now."""
+    from app.agents.rag_pipeline import hybrid_search
+
+    hits = hybrid_search(query=question, top_k=k,
+                         filter_report_ids=_patient_report_ids(patient_id))
+    return [_page_key(h) for h in hits]
+
+
 def stage_retrieval(questions: Sequence[dict], verbose: bool) -> dict:
     answerable = [q for q in questions if q["relevant_pages"]]
     paths = {
-        "copilot_path": _retrieve_as_copilot,
+        # The pre-Week-2 behaviour, kept so the regression stays visible.
+        "copilot_path_before": _retrieve_as_copilot,
+        # The ceiling the baseline established: exhaustive scan, filter first.
         "patient_filtered": _retrieve_patient_filtered,
+        # What the shipped functions now do.
+        "dense_filtered": _retrieve_dense_filtered,
+        "bm25": _retrieve_bm25,
+        "hybrid_rrf": _retrieve_hybrid,
     }
 
     results: Dict[str, dict] = {}
@@ -233,6 +279,9 @@ def stage_retrieval(questions: Sequence[dict], verbose: bool) -> dict:
             for kind in sorted({r["type"] for r in per_question})
         }
         results[name] = {
+            # Kept per question so a difference between two paths can be
+            # tested for significance rather than eyeballed off the means.
+            "per_question": per_question,
             "overall": summarise(per_question),
             "tuning_split": summarise([r for r in per_question if not r["held_out"]]),
             "held_out": summarise([r for r in per_question if r["held_out"]]),
