@@ -22,6 +22,7 @@ from app.core.config import settings
 from app.db.models import HealthMetric, Report
 from app.agents.rag_pipeline import search_similar_chunks
 from app.agents.llm_client import complete, llm
+from app.core.redaction import redact
 from app.agents.safety import scrub_text
 
 logger = logging.getLogger(__name__)
@@ -172,7 +173,8 @@ async def copilot_chat(
         # this is the guard. See app/agents/safety.py.
         answer, removed = scrub_text(answer)
         if removed:
-            logger.warning("Medication advice removed from a Copilot answer: %s", removed)
+            logger.warning("Medication advice removed from a Copilot answer: %s",
+                           [redact(r) for r in removed])
         return answer + DISCLAIMER
     except Exception as e:
         logger.error("Copilot LLM call failed: %s", e)
