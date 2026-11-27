@@ -323,11 +323,17 @@ async def check_llm() -> dict:
 
     started = time.monotonic()
     try:
+        # Deliberately no max_tokens, matching the agents, which set none.
+        # A provider that reserves budget up front estimates an uncapped
+        # request at the model's full output limit, so a key with too little
+        # credit refuses the real calls. An earlier version of this capped
+        # itself at 8 tokens, passed on a near-empty key, and let a whole run
+        # proceed to fail row by row - which reads as a defended system, not
+        # a billing problem. The preflight has to cost what the stages cost.
         reply = await llm.chat.completions.create(
             model=settings.LLM_MODEL,
             messages=[{"role": "user", "content": "Reply with the single word: ready"}],
             temperature=0,
-            max_tokens=8,
         )
     except Exception as exc:
         raise SystemExit(
