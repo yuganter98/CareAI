@@ -1,6 +1,9 @@
-import os
 import logging
+import math
+import os
+import re
 import threading
+from collections import Counter
 
 import faiss
 import numpy as np
@@ -185,10 +188,43 @@ def delete_report_vectors(report_id: str) -> int:
     return removed
 
 
-def search_similar_chunks(query: str, top_k: int = 3, filter_report_id: str = None):
+def _allowed_report_ids(filter_report_id, filter_report_ids):
+    """Normalise the two filter arguments into a set, or None for no filter."""
+    if filter_report_ids is not None:
+        allowed = {str(r) for r in filter_report_ids}
+        # An explicit empty list means "this user owns nothing", which must
+        # return nothing rather than silently searching everyone's reports.
+        return allowed
+    if filter_report_id is not None:
+        return {str(filter_report_id)}
+    return None
+
+
+def _similarity(distance) -> float:
+    """L2 distance to a 0-1 score, so dense and lexical hits can be compared."""
+    return 1.0 / (1.0 + float(distance))
+
+
+def search_similar_chunks(query: str, top_k: int = 3, filter_report_id: str = None,
+                          filter_report_ids=None):
     """
-    Queries the persistent FAISS index for the most relevant context chunks.
+    Nearest chunks to `query`, restricted to the given reports.
+
+    The filter is applied *before* the top_k cut. That distinction is the whole
+    point: the previous version took FAISS's global top_k and then dropped
+    other users' chunks, so with many patients indexed a user's own pages
+    almost never survived. Recall@5 measured 1.2% against 30.0% for filtering
+    first (see eval/README.md).
+
+    FAISS cannot filter inside the search, so filtering first means fetching a
+    wider candidate window and widening it until top_k of the caller's own
+    chunks are found. That is a stopgap: in pgvector this is a WHERE clause on
+    the same index scan, with no over-fetch at all.
     """
+    allowed = _allowed_report_ids(filter_report_id, filter_report_ids)
+    if allowed is not None and not allowed:
+        return []
+
     with _index_lock:
         index = init_faiss_index()
         metadata = load_metadata()
@@ -196,22 +232,158 @@ def search_similar_chunks(query: str, top_k: int = 3, filter_report_id: str = No
     if index.ntotal == 0 or len(metadata) == 0:
         return []
 
-    # Embed user question
     query_embedding = get_embedding_model().encode([query])
     query_embedding = np.array(query_embedding).astype("float32")
 
-    distances, indices = index.search(query_embedding, top_k * 3)  # Search deeper if we need to filter
+    # No filter: the old top_k * 3 window is already more than enough.
+    # With a filter: start wide, then widen until we have top_k or run out.
+    fetch = min(index.ntotal, top_k * 3 if allowed is None else max(top_k * 20, 128))
 
-    results = []
-    for idx in indices[0]:
-        if idx != -1 and idx < len(metadata):
-            data = metadata[idx]
-            # If we want to strictly filter RAG context to ONLY the patient's specific report
-            if filter_report_id and data.get("report_id") != filter_report_id:
+    while True:
+        distances, indices = index.search(query_embedding, fetch)
+
+        results = []
+        for distance, idx in zip(distances[0], indices[0]):
+            if idx == -1 or idx >= len(metadata):
                 continue
-
-            results.append(data)
+            data = metadata[idx]
+            if allowed is not None and str(data.get("report_id")) not in allowed:
+                continue
+            hit = dict(data)
+            hit["score"] = _similarity(distance)
+            results.append(hit)
             if len(results) >= top_k:
                 break
 
-    return results
+        if len(results) >= top_k or fetch >= index.ntotal:
+            return results
+        fetch = min(index.ntotal, fetch * 4)
+
+
+# ── Lexical search ──────────────────────────────────────────────────────
+
+_TOKEN = re.compile(r"[a-z0-9][a-z0-9.]*")
+
+
+def _tokenize(text: str):
+    """Lowercase word/number tokens. Keeps decimals ('11.2') in one piece,
+    because a lab value is exactly the kind of term dense search loses."""
+    return _TOKEN.findall(text.lower())
+
+
+def bm25_search(query: str, top_k: int = 5, filter_report_id: str = None,
+                filter_report_ids=None, k1: float = 1.5, b: float = 0.75):
+    """
+    BM25 over the candidate chunks' text.
+
+    Dense embeddings are weak where this corpus is hardest: a patient's twenty
+    biochemistry pages differ only in numbers and dates, which is a keyword
+    match rather than a semantic one. The measured by-type split showed
+    exactly that, with cross-report questions at 20% Recall@5.
+
+    Statistics are computed over the candidate set on each call rather than
+    cached. The candidate set is one patient's chunks, which is small, and a
+    cache keyed on a mutable index is a correctness risk for no real gain
+    here. In pgvector this becomes a tsvector/GIN index doing the same job.
+    """
+    allowed = _allowed_report_ids(filter_report_id, filter_report_ids)
+    if allowed is not None and not allowed:
+        return []
+
+    with _index_lock:
+        metadata = load_metadata()
+
+    corpus = [m for m in metadata
+              if allowed is None or str(m.get("report_id")) in allowed]
+    if not corpus:
+        return []
+
+    terms = _tokenize(query)
+    if not terms:
+        return []
+
+    docs = [_tokenize(m.get("chunk", "")) for m in corpus]
+    lengths = [len(d) for d in docs]
+    avg_len = sum(lengths) / len(lengths) if lengths else 0.0
+    if avg_len == 0:
+        return []
+
+    # Document frequency for the query's terms only.
+    doc_freq = Counter()
+    doc_counts = []
+    for doc in docs:
+        counts = Counter(doc)
+        doc_counts.append(counts)
+        for term in set(terms):
+            if term in counts:
+                doc_freq[term] += 1
+
+    total = len(corpus)
+    scored = []
+    for i, counts in enumerate(doc_counts):
+        score = 0.0
+        for term in terms:
+            freq = counts.get(term, 0)
+            if not freq:
+                continue
+            n_q = doc_freq[term]
+            # Lucene's BM25 idf. The +1 inside the log keeps it positive even
+            # for a term in every document, so the max() never actually fires
+            # here; it is kept only so a future change to this expression
+            # cannot start returning negative contributions unnoticed.
+            # A universal term still scores, but weakly enough that a
+            # selective term in the same query decides the ranking.
+            idf = max(0.0, math.log(1 + (total - n_q + 0.5) / (n_q + 0.5)))
+            norm = freq * (k1 + 1) / (freq + k1 * (1 - b + b * lengths[i] / avg_len))
+            score += idf * norm
+        if score > 0:
+            hit = dict(corpus[i])
+            hit["score"] = score
+            scored.append(hit)
+
+    scored.sort(key=lambda h: h["score"], reverse=True)
+    return scored[:top_k]
+
+
+# ── Hybrid search ───────────────────────────────────────────────────────
+
+def _rrf_key(hit: dict) -> str:
+    """Chunk identity for fusion. chunk_id is stable; fall back to the text
+    for any row written before chunk ids existed."""
+    return str(hit.get("chunk_id") or hit.get("chunk", ""))
+
+
+def hybrid_search(query: str, top_k: int = 5, filter_report_id: str = None,
+                  filter_report_ids=None, candidates: int = 20, rrf_k: int = 60):
+    """
+    Dense and BM25 results fused with Reciprocal Rank Fusion.
+
+    RRF sums 1/(rrf_k + rank) across the lists. It uses only ranks, never the
+    raw scores, which is what makes it safe here: an L2 similarity and a BM25
+    score are on unrelated scales and normalising them against each other
+    would be arbitrary. rrf_k = 60 is the value from the original RRF paper,
+    kept rather than tuned so the number in EXPERIMENTS.md is not fitted to
+    this test set.
+    """
+    dense = search_similar_chunks(query, top_k=candidates,
+                                  filter_report_id=filter_report_id,
+                                  filter_report_ids=filter_report_ids)
+    lexical = bm25_search(query, top_k=candidates,
+                          filter_report_id=filter_report_id,
+                          filter_report_ids=filter_report_ids)
+
+    fused: dict = {}
+    for ranking in (dense, lexical):
+        for rank, hit in enumerate(ranking, start=1):
+            key = _rrf_key(hit)
+            if key not in fused:
+                fused[key] = {"hit": dict(hit), "score": 0.0}
+            fused[key]["score"] += 1.0 / (rrf_k + rank)
+
+    ordered = sorted(fused.values(), key=lambda e: e["score"], reverse=True)
+    out = []
+    for entry in ordered[:top_k]:
+        hit = entry["hit"]
+        hit["score"] = entry["score"]
+        out.append(hit)
+    return out

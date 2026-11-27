@@ -1,0 +1,135 @@
+# Retrieval experiments
+
+One entry per change tried against `golden_v1`, including the ones that were
+not shipped. A log of only the wins would be a sales page.
+
+Every number is Recall@5 over the 80 answerable questions, from
+`results/2026-11-27_week2.json`. Differences are a paired bootstrap over the
+per-question scores — `python eval/compare.py <results.json> --by-type` —
+because a 9-point difference on 80 questions can easily be nothing, and
+eyeballing two means cannot tell you which.
+
+| Path | Recall@5 | MRR@10 | nDCG@10 | p50 | Shipped |
+| --- | --- | --- | --- | --- | --- |
+| `copilot_path_before` | 1.2% | 0.005 | 0.008 | 20ms | was |
+| `dense_filtered` | **30.0%** | 0.230 | 0.285 | 24ms | **yes** |
+| `bm25` | 38.8% | 0.422 | 0.404 | 9ms | no |
+| `hybrid_rrf` | 35.6% | 0.267 | 0.329 | 30ms | no |
+
+---
+
+## 1. Filter by owner before the top-k cut — shipped
+
+**1.2% → 30.0% Recall@5.** The one unambiguous win, and it was a bug fix
+rather than a retrieval improvement.
+
+`_get_rag_context` asked FAISS for the global top 8 chunks and *then* dropped
+the ones that were not the current user's:
+
+```python
+all_chunks = search_similar_chunks(query=question, top_k=8, filter_report_id=None)
+user_chunks = [c for c in all_chunks if c.get("report_id") in user_report_ids]
+```
+
+With one patient in the index this works. With 40 patients and 1,606 chunks it
+returns almost nothing: the user's own pages are rarely among the eight nearest
+in the whole corpus, so the filter runs on a list that no longer contains them.
+In production that reads as "the assistant can't find my reports", with no
+error anywhere.
+
+`search_similar_chunks` now takes `filter_report_ids` and applies it inside the
+search. FAISS cannot filter during a scan, so it fetches a wider candidate
+window and widens it until `top_k` of the caller's own chunks are found. That
+reproduces an exhaustive scan exactly — `dense_filtered` and
+`patient_filtered` score identically to three decimal places, which is the
+check that the over-fetch is not quietly truncating.
+
+The over-fetch is a stopgap. In pgvector this is a `WHERE user_id = ?` on the
+same index scan, with no over-fetch at all. The reason to do it this way first
+is that it makes the fix shippable now, and it isolates the pgvector migration
+to being about scale rather than correctness.
+
+`report_analyzer` and `explainability` pass a single `filter_report_id` and
+were affected by the same ordering; they are fixed by the same change.
+
+### Why 30% is still bad
+
+| Question type | n | Recall@5 |
+| --- | --- | --- |
+| single_report | 20 | 50.0% |
+| multi_step | 20 | 30.0% |
+| cross_report | 40 | 20.0% |
+
+A patient has ~20 reports whose pages are near-identical in wording and differ
+only in numbers and dates. Dense embeddings are weak at exactly that, and
+cross-report questions are both the hardest and half the set.
+
+---
+
+## 2. BM25 and RRF fusion — not shipped
+
+Both were built, measured, and left out of the Copilot. The overall numbers
+favour them; the breakdown says the gain is an artifact of the question set.
+
+```
+dense_filtered -> bm25        [all]            80    +8.8pp  [ -1.9,+19.4]pp  p=0.122
+dense_filtered -> bm25        [cross_report]   40    +1.2pp  [-12.5,+15.0]pp  p=0.916
+dense_filtered -> bm25        [multi_step]     20   -12.5pp  [-27.5, +2.5]pp  p=0.084
+dense_filtered -> bm25        [single_report]  20   +45.0pp  [+25.0,+65.0]pp  p=0.000 *
+dense_filtered -> hybrid_rrf  [multi_step]     20   -12.5pp  [-25.0, +0.0]pp  p=0.019 *
+```
+
+Three things rule it out:
+
+1. **The +8.8pp overall is not significant** (p=0.12, CI crosses zero). On 80
+   questions it is not distinguishable from noise.
+2. **All of the real effect is in `single_report`** (+45pp, p<0.001), and that
+   bucket is the one `README.md` already flags as too easy: the questions are
+   generated from templates, so they quote the metric name and date verbatim.
+   BM25 is being rewarded for matching strings the generator put in both the
+   question and the page. A patient typing "am I getting better?" produces no
+   such match. This is measuring the test set, not the system.
+3. **`multi_step` significantly regresses** under fusion (−12.5pp, p=0.019).
+   Lexical hits crowd out the second page a multi-step answer needs, and that
+   is a real loss on real questions.
+
+On `cross_report` — the bucket that matters most, and the only one with 40
+questions behind it — lexical search does **nothing**: +1.2pp, p=0.92. The
+hypothesis that keyword matching would rescue date-and-value questions is not
+supported.
+
+So `bm25_search` and `hybrid_search` stay in `rag_pipeline.py`, tested and
+measured, wired into the eval but not into the Copilot. Shipping them would
+mean taking a significant regression on multi-step questions in exchange for a
+gain that exists only where the test set is weakest.
+
+**What would change this verdict:** hand-written questions. The template
+artifact is a property of how `golden_v1` is generated, and it both inflates
+BM25 on easy questions and may hide a genuine benefit on hard ones. Until the
+question set contains phrasings the generator did not also put on the page,
+this comparison cannot settle the matter either way. That is the next piece of
+work, and it is worth more than any reranker: a better model cannot be
+measured on a set that cannot tell good from lucky.
+
+### A note on the RRF constant
+
+`rrf_k = 60`, from the original RRF paper, left untuned. Fitting it to 80
+questions would produce a number that describes this set rather than the
+method. Fusion uses ranks only, never the raw scores, because an L2 similarity
+and a BM25 score are on unrelated scales and normalising one against the other
+would be arbitrary.
+
+---
+
+## Still to measure
+
+- **Chunking.** `CHUNK_SIZE = 500` / `OVERLAP = 50` has never been compared
+  against anything. Page-bounded chunking is already in place, so a sweep only
+  changes within-page splits; worth one experiment, not a week.
+- **A cross-encoder reranker** over the top 20. The honest expectation is that
+  it helps less than fixing the question set.
+- **pgvector**, replacing the over-fetch with a `WHERE` clause. A correctness
+  no-op by construction — `dense_filtered` is the target to reproduce — so it
+  should be judged on latency and on the index scaling past 1,606 chunks.
+- **A refusal threshold.** 10 unanswerable questions are in `golden_v1` and
+  nothing currently declines to answer them.
