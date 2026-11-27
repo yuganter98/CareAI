@@ -36,6 +36,8 @@ import logging
 import re
 from typing import Any, Dict, List, Tuple
 
+from app.core.redaction import redact
+
 logger = logging.getLogger(__name__)
 
 # What a patient is told instead of a scrubbed instruction. CareAI may always
@@ -201,9 +203,13 @@ def scrub_analysis(analysis: Dict[str, Any], *, context: str = "") -> Dict[str, 
     # The same instruction usually lands in both the summary and the actions.
     unique_removed = list(dict.fromkeys(removed))
     if unique_removed:
+        # Redacted: these sentences are report-derived, so they can carry the
+        # patient's name as readily as their glucose. The caller does not
+        # know the name here, so only the deterministic patterns apply.
         logger.warning(
             "Medication advice removed from analysis%s: %s",
-            f" ({context})" if context else "", unique_removed)
+            f" ({context})" if context else "",
+            [redact(s) for s in unique_removed])
         out["safety"] = {
             "medication_advice_removed": unique_removed,
             "note": SAFE_MEDICATION_ACTION,

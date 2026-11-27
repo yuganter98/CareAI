@@ -1,4 +1,5 @@
-from sqlalchemy import Column, String, Float, DateTime, ForeignKey
+from sqlalchemy import (Column, String, Float, DateTime, ForeignKey,
+                        UniqueConstraint)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -37,7 +38,21 @@ class Report(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     file_url = Column(String, nullable=False)
     file_type = Column(String, nullable=False)
+    # SHA-256 of the uploaded bytes, so re-uploading the same file returns the
+    # existing report instead of paying for extraction and analysis again.
+    #
+    # Scoped per user, not globally. Two people may legitimately upload the
+    # same file - a public health leaflet, a shared family report - and
+    # matching across accounts would both merge their records and let one user
+    # learn that another holds a given file. Nullable because rows written
+    # before this column existed have no hash; those simply never dedupe.
+    content_sha256 = Column(String(64), nullable=True, index=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "content_sha256",
+                         name="uq_reports_user_content"),
+    )
 
     owner = relationship("User", back_populates="reports")
     health_metrics = relationship("HealthMetric", back_populates="report", cascade="all, delete")

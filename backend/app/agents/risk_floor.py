@@ -56,6 +56,7 @@ import logging
 import re
 from typing import Any, Dict, List, Tuple
 
+from app.core.redaction import redact
 from app.core.reference_ranges import (
     BUCKET_SEVERITY,
     REFERENCE_RANGES,
@@ -277,7 +278,7 @@ def scrub_false_normality(
     if removed:
         logger.warning(
             "Removed a blanket normality claim contradicted by %s: %s",
-            abnormal, removed)
+            abnormal, [redact(c) for c in removed])
         safety = dict(out.get("safety") or {})
         safety["false_normality_removed"] = {
             "claims": list(dict.fromkeys(removed)),

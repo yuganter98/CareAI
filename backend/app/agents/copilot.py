@@ -22,17 +22,15 @@ from app.core.config import settings
 from app.db.models import HealthMetric, Report
 from app.agents.rag_pipeline import search_similar_chunks
 from app.agents.llm_client import complete, llm
+from app.core.disclaimer import with_disclaimer
+from app.core.redaction import redact
 from app.agents.safety import scrub_text
 
 logger = logging.getLogger(__name__)
 
 
-DISCLAIMER = (
-    "\n\n---\n"
-    "⚕️ *Disclaimer: This is AI-generated health guidance based on your uploaded reports. "
-    "It is NOT a substitute for professional medical advice, diagnosis, or treatment. "
-    "Always consult your doctor for clinical decisions.*"
-)
+# The disclaimer now lives in app/core/disclaimer.py so every answer
+# endpoint uses the same one, not just this agent.
 
 
 async def _get_user_report_ids(db: AsyncSession, user_id: str) -> List[str]:
@@ -172,8 +170,9 @@ async def copilot_chat(
         # this is the guard. See app/agents/safety.py.
         answer, removed = scrub_text(answer)
         if removed:
-            logger.warning("Medication advice removed from a Copilot answer: %s", removed)
-        return answer + DISCLAIMER
+            logger.warning("Medication advice removed from a Copilot answer: %s",
+                           [redact(r) for r in removed])
+        return with_disclaimer(answer)
     except Exception as e:
         logger.error("Copilot LLM call failed: %s", e)
         raise ValueError(f"Health Copilot failed to generate a response: {e}")
