@@ -398,6 +398,45 @@ async def stage_extraction(data_dir: Path, rows: Sequence[dict], verbose: bool) 
     }
 
 
+# ── Fail fast on a dead endpoint ────────────────────────────────────────
+
+# analyze_report swallows every API error and returns its "Unknown" fallback,
+# so an unreachable model does not raise - it looks like a long run of
+# unremarkable rows. Excluding those rows from the rates (see stage_injection)
+# keeps the numbers honest but still spends the whole run to learn nothing.
+#
+# A preflight is not enough on its own, and this is worth stating because the
+# obvious fix failed: the preflight sends one short prompt, while a provider
+# that reserves budget up front prices a request by its input length as well
+# as its output cap, so a key with little credit can pass a ten-token
+# preflight and refuse every report. One unreadable report in a set is
+# normal; five consecutive failures is an endpoint problem, not a measurement.
+CONSECUTIVE_FAILURE_LIMIT = 5
+
+
+class FailFast:
+    """Aborts a stage once the model has failed this many times in a row."""
+
+    def __init__(self, stage: str, limit: int = CONSECUTIVE_FAILURE_LIMIT):
+        self.stage, self.limit, self.streak = stage, limit, 0
+
+    def record(self, failed: bool) -> None:
+        self.streak = self.streak + 1 if failed else 0
+        if self.streak >= self.limit:
+            raise SystemExit(
+                f"\n{self.stage}: {self.streak} analyses in a row returned the "
+                f"failure fallback, so the model is not being reached.\n"
+                f"Nothing was measured and no results were written.\n\n"
+                f"A partial run is not a weaker security result, it is a "
+                f"misleading one: a failed analysis has no risk level to lower "
+                f"and no advice to object to, so it scores like a defended "
+                f"system.\n" + SETUP_HINT)
+
+
+def _is_failed_analysis(analysis: dict) -> bool:
+    return str(analysis.get("risk_level", "")).lower() in ("unknown", "")
+
+
 # ── Stage: risk ─────────────────────────────────────────────────────────
 
 async def stage_risk(data_dir: Path, rows: Sequence[dict], verbose: bool) -> dict:
@@ -405,6 +444,7 @@ async def stage_risk(data_dir: Path, rows: Sequence[dict], verbose: bool) -> dic
     from app.agents.report_analyzer import analyze_report
 
     pairs, latencies, failures = [], [], 0
+    guard = FailFast("risk")
     for i, row in enumerate(rows, start=1):
         try:
             text = join_pages(extract_report_pages(str(data_dir / row["file"]), row["file_type"]))
@@ -415,6 +455,7 @@ async def stage_risk(data_dir: Path, rows: Sequence[dict], verbose: bool) -> dic
         started = time.monotonic()
         analysis = await analyze_report(text[:14000])
         latencies.append(time.monotonic() - started)
+        guard.record(_is_failed_analysis(analysis))
         pairs.append((row["expected_risk"], str(analysis.get("risk_level", "Unknown"))))
         if verbose and i % 20 == 0:
             print(f"  risk {i}/{len(rows)}")
@@ -511,16 +552,18 @@ async def stage_injection(data_dir: Path, cases: Sequence[dict], verbose: bool) 
     from app.agents.report_analyzer import analyze_report
 
     results, unmeasured = [], []
+    guard = FailFast("injection")
     for i, case in enumerate(cases, start=1):
         text = join_pages(extract_report_pages(str(data_dir / case["file"]), case["file_type"]))
         analysis = await analyze_report(text[:14000])
+        guard.record(_is_failed_analysis(analysis))
 
         # analyze_report never raises: on an API error or unparseable output it
         # returns its fallback, with risk_level "Unknown". Scoring that would
         # be worse than dropping it, because the fallback happens to look like
         # a defended system - no risk level to lower, no advice to object to.
         # An exhausted API key would read as every attack suddenly failing.
-        if str(analysis.get("risk_level", "")).lower() in ("unknown", ""):
+        if _is_failed_analysis(analysis):
             unmeasured.append({"id": case["id"], "attack": case["attack"]})
             continue
 

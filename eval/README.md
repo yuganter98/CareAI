@@ -167,6 +167,30 @@ effect is visible immediately: in a credit-exhausted run, 9 of 30 cases drop
 out and `suppress_alert` rises from 17% to 50%, because its fallbacks had
 been silently counted as successful defences.
 
+Reporting a partial honestly is not enough on its own, because a partial run
+still spends the whole run to learn nothing, and `suppress_alert` at 50% is a
+number someone can quote. So `make eval-full` runs `check-llm` first, and each
+LLM stage now aborts after five consecutive failed analyses, writing no result
+file at all.
+
+**The preflight alone is not a sufficient guard, and it is worth knowing why.**
+It originally capped itself at `max_tokens=8`. The agents set no `max_tokens`,
+so a provider that reserves budget up front prices their calls at the model's
+full output limit; a key with too little credit passed the cheap preflight and
+refused every real call. Removing the cap narrowed the gap but did not close
+it: the preflight still sends one short prompt, and the estimate scales with
+input length too, so a run has been observed where the preflight succeeded and
+23 of 30 reports were then refused. Making the preflight fully representative
+would mean paying for a report-sized request on every invocation and still
+guessing at the provider's accounting. The consecutive-failure abort is the
+backstop that does not require predicting it.
+
+A related trap for anyone reading an OpenRouter key's status: `/api/v1/key`
+reports `limit_remaining`, which is the unused part of that key's own spending
+*cap*, not money available to spend. The balance is `total_credits` from
+`/api/v1/credits`. A key can show `limit_remaining: 49.88` against
+`total_credits: 0` and fail every request.
+
 ### These numbers are not reproducible run to run
 
 Four identical runs of the injection stage gave **43.3%, 36.7%, 40.0%,

@@ -115,3 +115,59 @@ class TestInjectionVerdicts:
     def test_the_check_is_read_from_the_case_and_must_be_known(self):
         with pytest.raises(ValueError):
             H._injection_succeeded(self._case(check="nonsense"), {})
+
+
+class TestFailFast:
+    """
+    The measurement-integrity guard.
+
+    analyze_report swallows API errors and returns a fallback whose risk_level
+    is "Unknown". That fallback scores like a hardened system - there is no
+    risk level to lower and no advice to object to - so an endpoint that is
+    down reads as every attack suddenly failing. This happened: an exhausted
+    API key produced a run whose suppress_alert rate had improved, because its
+    fallbacks were being counted as successful defences.
+
+    A preflight check did not catch it, and cannot be relied on to: the
+    provider priced each request by its prompt length as well as its output
+    cap, so a one-line preflight passed while every report-sized request was
+    refused. This guard is the backstop that does not depend on predicting
+    the provider's accounting.
+    """
+
+    def test_aborts_once_failures_are_consecutive(self):
+        guard = H.FailFast("injection", limit=3)
+        guard.record(True)
+        guard.record(True)
+        with pytest.raises(SystemExit) as exc:
+            guard.record(True)
+        # The message has to say the run measured nothing, or the next person
+        # reads the abort as a bad score rather than a missing one.
+        assert "not being reached" in str(exc.value)
+        assert "Nothing was measured" in str(exc.value)
+
+    def test_a_success_resets_the_streak(self):
+        # One unreadable report in a set is normal and must not stop a run.
+        guard = H.FailFast("injection", limit=3)
+        for _ in range(10):
+            guard.record(True)
+            guard.record(True)
+            guard.record(False)
+
+    def test_scattered_failures_do_not_abort(self):
+        guard = H.FailFast("risk", limit=5)
+        for failed in [False, True, False, True, True, False, True]:
+            guard.record(failed)
+
+    def test_a_clean_run_never_aborts(self):
+        guard = H.FailFast("risk", limit=5)
+        for _ in range(100):
+            guard.record(False)
+
+    def test_what_counts_as_a_failed_analysis(self):
+        assert H._is_failed_analysis({"risk_level": "Unknown"})
+        assert H._is_failed_analysis({"risk_level": "unknown"})
+        assert H._is_failed_analysis({"risk_level": ""})
+        assert H._is_failed_analysis({})
+        for level in ("Low", "Medium", "High"):
+            assert not H._is_failed_analysis({"risk_level": level})
